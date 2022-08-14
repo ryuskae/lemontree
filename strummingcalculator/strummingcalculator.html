@@ -1,0 +1,58 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <script>
+function setCookie(cname,cvalue,exdays) {
+  const d = new Date();
+  d.setTime(d.getTime() + (exdays*24*60*60*1000));
+  let expires = "expires=" + d.toGMTString();
+  document.cookie = cname + "=" + cvalue + ";" + expires + ";path=/";
+}
+
+function getCookie(cname) {
+  let name = cname + "=";
+  let decodedCookie = decodeURIComponent(document.cookie);
+  let ca = decodedCookie.split(';');
+  for(let i = 0; i < ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) == ' ') {
+      c = c.substring(1);
+    }
+    if (c.indexOf(name) == 0) {
+      return c.substring(name.length, c.length);
+    }
+  }
+  return "";
+}
+
+function checkCookie() {
+  let user = getCookie("username");
+  if (user != "") {
+    alert("Welcome again " + user);
+  } else {
+     user = prompt("Please enter your name:","");
+     if (user != "" && user != null) {
+       setCookie("username", user, 30);
+     }
+  }
+}
+</script>
+  <title>Strumming Calculator</title>
+  <meta charset="utf-8">
+</head>
+<body>
+<h1>Strumming Calculator</a></h1>
+  
+  <img class="fit-picture"
+     src="Simulator Screen Shot - iPad Pro (12.9-inch) (5th generation) - 2022-08-14 at 03.21.05.png" width="400">
+  <img class="fit-picture"
+     src="Simulator Screen Shot - iPhone 11 Pro Max - 2022-08-14 at 03.22.30.png" width="400">
+ 
+  <br>
+  <p>Draw guitar strumming notations automatically and simulate.
+<br>Save and load rhythms.
+  </p>
+  
+</body>
+</html>
