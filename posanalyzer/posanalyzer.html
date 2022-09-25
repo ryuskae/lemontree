@@ -1,0 +1,57 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <script>
+function setCookie(cname,cvalue,exdays) {
+  const d = new Date();
+  d.setTime(d.getTime() + (exdays*24*60*60*1000));
+  let expires = "expires=" + d.toGMTString();
+  document.cookie = cname + "=" + cvalue + ";" + expires + ";path=/";
+}
+
+function getCookie(cname) {
+  let name = cname + "=";
+  let decodedCookie = decodeURIComponent(document.cookie);
+  let ca = decodedCookie.split(';');
+  for(let i = 0; i < ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) == ' ') {
+      c = c.substring(1);
+    }
+    if (c.indexOf(name) == 0) {
+      return c.substring(name.length, c.length);
+    }
+  }
+  return "";
+}
+
+function checkCookie() {
+  let user = getCookie("username");
+  if (user != "") {
+    alert("Welcome again " + user);
+  } else {
+     user = prompt("Please enter your name:","");
+     if (user != "" && user != null) {
+       setCookie("username", user, 30);
+     }
+  }
+}
+</script>
+  <tittle>영어 품사 분석기</title>
+  <meta charset="utf-8">
+</head>
+<body>
+<h1><a href="../index.html">처음으로</a></h1>
+  
+  <img class="fit-picture"
+     src="Simulator Screen Shot - iPad Pro (12.9-inch) (5th generation) - 2022-09-23 at 19.46.17.png" width="200">
+ 
+  <br>
+  <p>영어 품사 분석기
+<br>- 영어 문장을 입력하면 문장 속에 포함된 품사(명사, 동사..)를 자동으로 나열하고 색상으로 구분해 줍니다.
+<br>- 카메라 인식 기능을 지원합니다.
+  </p>
+  
+</body>
+</html>
