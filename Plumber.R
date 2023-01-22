@@ -13,7 +13,7 @@ function(){
 #* @param min Lower limit of the distribution.
 #* @param max Upper limit of the distribution.
 #* @get /runif
-#* @serializer html
+#* @serializer text
 function(min = 0, max = 1){
   
   x <- runif(n = 1, 
