@@ -20,7 +20,8 @@ function(min = 0, max = 1){
              min = as.numeric(min), 
              max = as.numeric(max))
   
-  paste0('<h3>', x, '</h3>')
+  # paste0('<h3>', x, '</h3>')
+  return x
 }
 # EXAMPLE 1
 #* Confirmation Message
