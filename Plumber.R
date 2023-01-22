@@ -10,17 +10,18 @@ library(neuralnet)
 #* @param Time
 #* @get /prediction
 #* @serializer text
-function(Distance = 0.5, Sex = 0.5, RP = 0.5, Fee = 0.5, Time = 0.5 ){
+function(Distance = 500, Sex = 1, RP = 200000000, Fee = 80000, Time = 1.0 ){
   
-  load(file = "data_model.rda")
-  Distance <- as.numeric(Distance)
-  Sex <- as.numeric(Sex)
-  RP <- as.numeric(RP)
-  Fee <- as.numeric(Fee)
-  Time <- as.numeric(Time)
+  load(file = "data_model 2.rda")
+  Distance <- ( as.numeric(Distance) - min(data$Distance) ) / ( max(data$Distance) - min(data$Distance) )
+  Sex <- ( as.numeric(Sex) - min(data$Sex) ) / ( max(data$Sex) - min(data$Sex) )
+  RP <- ( as.numeric(RP) - min(data$RP) ) / ( max(data$RP) - min(data$RP) )
+  Fee <- ( as.numeric(Fee) - min(data$Fee) ) / ( max(data$Fee) - min(data$Fee) )
+  Time <- ( as.numeric(Time) - min(data$Time) ) / ( max(data$Time) - min(data$Time) )
   
   df <- data.frame(Distance, Sex, RP, Fee, Time)
   x <- compute(data_model, df)$net.result
+  x <- x * ( max(data$AttCount) - min(data$AttCount) ) + min(data$AttCount)
   paste0('', x, '')
 }
 # EXAMPLE 2
