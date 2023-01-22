@@ -11,8 +11,15 @@ library(neuralnet)
 #* @get /prediction
 #* @serializer text
 function(Distance = 0.5, Sex = 0.5, RP = 0.5, Fee = 0.5, Time = 0.5 ){
+  
   load(file = "data_model.rda")
- df <- data.frame(Distance, Sex, RP, Fee, Time)
+  Distance <- as.numeric(Distance)
+  Sex <- as.numeric(Sex)
+  RP <- as.numeric(RP)
+  Fee <- as.numeric(Fee)
+  Time <- as.numeric(Time)
+  
+  df <- data.frame(Distance, Sex, RP, Fee, Time)
   x <- compute(data_model, df)$net.result
   paste0('', x, '')
 }
