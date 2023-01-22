@@ -1,3 +1,4 @@
+library(neuralnet)
 #' @apiTitle My R Service
 #' @apiDescription This service runs R scripts on Google Cloud Run.
 # EXAMPLE 3
