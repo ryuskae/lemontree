@@ -1,12 +1,19 @@
 #' @apiTitle My R Service
 #' @apiDescription This service runs R scripts on Google Cloud Run.
 # EXAMPLE 3
-#* iris datatable
-#* @get /iris
-#* @serializer htmlwidget
-function(){
-  
-  DT::datatable(iris)
+#* Student Attandance Prediction
+#* @param Distance
+#* @param Sex
+#* @param RP
+#* @param Fee
+#* @param Time
+#* @get /prediction
+#* @serializer text
+function(Distance = 0.5, Sex = 0.5, RP = 0.5, Fee = 0.5, Time = 0.5 ){
+  load(file = "data_model.rda")
+ df <- data.frame(Distance, Sex, RP, Fee, Time)
+  x <- compute(data_model, df)
+  paste0('', x, '')
 }
 # EXAMPLE 2
 #* Random Number from Uniform Distribution
