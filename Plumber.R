@@ -1,6 +1,28 @@
 library(neuralnet)
+library(R.utils)
+
 #' @apiTitle My R Service
 #' @apiDescription This service runs R scripts on Google Cloud Run.
+
+#Example 4
+#* Sex classifier by Name
+#* @param name
+#* @get /nameClassifier
+#* @serializer text
+function(name) {
+  load(file = "nameClassifier.rda")
+  newName <- utf8ToInt(name)
+  newName <- intToBin(newName)
+  newName <- paste(newName, collapse = '')
+  newName <- strsplit(newName, split = "")
+  newName <- data.frame(newName)
+  newName <- t(newName)
+  newName <- apply(newName, 1,            # Specify own function within apply
+                   function(x) as.numeric(as.character(x)))
+  newName <- t(newName)
+  predict(data_model,newName)
+}
+
 # EXAMPLE 3
 #* Student Attandance Prediction
 #* @param Distance
