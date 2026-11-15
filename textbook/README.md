@@ -35,7 +35,7 @@
 2. 'API 및 서비스 › 라이브러리'에서 **Google Drive API**를 검색해 '사용'을 누릅니다.
 3. 'API 및 서비스 › 사용자 인증 정보'에서 `Browser key (auto created by Firebase)`를 엽니다.
    - 'API 제한사항'이 '키 제한'으로 되어 있으면 목록에 **Google Drive API**를 추가로 체크합니다.
-   - '애플리케이션 제한사항'은 '웹사이트'를 고르고 `https://ryuskae.github.io/*`를 넣으면 다른 사이트에서 이 키를 쓰지 못합니다.
+   - '애플리케이션 제한사항'은 '웹사이트'를 고르고 `https://ryuskae.github.io/*`와 `https://<프로젝트ID>.firebaseapp.com/*` 두 줄을 넣습니다. 두 번째 주소가 빠지면 선생님 구글 로그인이 막힙니다.
 4. 저장합니다.
 
 ### 6. 교재 폴더 공유
