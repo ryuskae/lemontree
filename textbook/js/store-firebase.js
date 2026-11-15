@@ -127,6 +127,18 @@ export async function registerKiosk(password) {
   }
 }
 
+// 학원 태블릿 비밀번호 확인 (등록 해제, 학원 태블릿에서 선생님 로그인할 때)
+export async function checkKioskPassword(password) {
+  const info = await getDoc(doc(db, 'publicInfo', 'kiosk'));
+  if (!info.exists()) return;
+  try {
+    await withSecondaryAuth((sAuth) => signInWithEmailAndPassword(sAuth, info.data().email, password));
+  } catch (e) {
+    if (String(e.code || '').startsWith('auth/')) throw new Error('비밀번호가 맞지 않습니다.');
+    throw e;
+  }
+}
+
 export async function logout() { await signOut(auth); session = null; }
 
 // 관리자가 다른 계정을 만들 때 쓰는 보조 인증 (관리자 로그인은 그대로 유지된다)

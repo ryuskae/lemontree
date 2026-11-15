@@ -98,6 +98,11 @@ export async function loginAdmin() {
   return setSession({ role: 'admin', uid: 'admin', name: '선생님' });
 }
 
+export async function checkKioskPassword(password) {
+  await wait();
+  if (db.kiosk.password && password !== db.kiosk.password) throw new Error('비밀번호가 맞지 않습니다.');
+}
+
 export async function registerKiosk(password) {
   await wait();
   if (!db.kiosk.password) throw new Error('관리자 페이지의 설정 탭에서 학원 태블릿 비밀번호를 먼저 만들어 주세요.');

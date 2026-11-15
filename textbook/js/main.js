@@ -88,7 +88,32 @@ function viewLogin() {
     h('section', { class: 'login-panel' }, form)));
 }
 
+// 학원 태블릿으로 등록했던 기기는 선생님 로그인 전에 학원 태블릿 비밀번호를 한 번 더 묻는다
+const KIOSK_FLAG = 'lt-kiosk-device';
+const isKioskDevice = () => { try { return localStorage.getItem(KIOSK_FLAG) === '1'; } catch { return false; } };
+const setKioskDevice = (on) => { try { on ? localStorage.setItem(KIOSK_FLAG, '1') : localStorage.removeItem(KIOSK_FLAG); } catch {} };
+
+async function askKioskPassword({ title, message, okText, danger }) {
+  const res = await sheet((body, close) => {
+    const pw = h('input', { class: 'input', type: 'password', placeholder: '학원 태블릿 비밀번호', autocomplete: 'off' });
+    const msg = h('p', { class: 'form-msg' });
+    const ok = h('button', { class: 'btn ' + (danger ? 'danger' : 'primary'), onclick: async () => {
+      busy(ok, true);
+      try { await store.checkKioskPassword(pw.value); close(true); }
+      catch (e) { msg.textContent = e.message; pw.select(); } finally { busy(ok, false); }
+    } }, okText);
+    pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok.click(); });
+    body.append(h('p', { class: 'sheet-msg' }, message), pw, msg, h('div', { class: 'row end' }, ok));
+    setTimeout(() => pw.focus(), 50);
+  }, { title });
+  return res === true;
+}
+
 async function adminLogin() {
+  if (isKioskDevice()) {
+    const ok = await askKioskPassword({ title: '선생님 확인', message: '학원 태블릿으로 쓰던 기기예요. 학원 태블릿 비밀번호를 입력하면 선생님 로그인으로 넘어가요.', okText: '확인' });
+    if (!ok) return;
+  }
   try {
     const s = await store.loginAdmin();
     if (s) { session = s; nav('#/admin'); }
@@ -101,7 +126,7 @@ function registerTablet() {
     const msg = h('p', { class: 'form-msg' });
     const ok = h('button', { class: 'btn primary', onclick: async () => {
       busy(ok, true);
-      try { session = await store.registerKiosk(pw.value); close(); nav('#/'); toast('이 태블릿을 학원 태블릿으로 등록했어요.', 'good'); }
+      try { session = await store.registerKiosk(pw.value); setKioskDevice(true); close(); nav('#/'); toast('이 태블릿을 학원 태블릿으로 등록했어요.', 'good'); }
       catch (e) { msg.textContent = e.message; } finally { busy(ok, false); }
     } }, '등록');
     body.append(h('p', { class: 'sheet-msg' }, '학원 태블릿으로 등록하면 학생들이 이름만 눌러서 들어올 수 있어요. 학원 기기에서만 등록해 주세요.'), pw, msg, h('div', { class: 'row end' }, ok));
@@ -128,7 +153,8 @@ async function viewKiosk() {
         ? h('div', { class: 'name-grid' }, students.map((s) => h('button', { class: 'name-btn', onclick: () => nav(`#/k/${s.id}`) }, s.name)))
         : h('p', { class: 'center muted' }, '등록된 학생이 없어요. 관리자 페이지에서 학생을 추가해 주세요.'),
       h('div', { class: 'kiosk-foot' }, h('button', { class: 'linkish quiet', onclick: async () => {
-        if (await confirmBox('이 태블릿의 학원 태블릿 등록을 해제할까요? 다시 쓰려면 학원 태블릿 비밀번호가 필요해요.', { ok: '해제', danger: true })) { await store.logout(); nav('#/'); }
+        const ok = await askKioskPassword({ title: '학원 태블릿 등록 해제', message: '등록을 해제하려면 학원 태블릿 비밀번호를 입력해 주세요.', okText: '해제', danger: true });
+        if (ok) { await store.logout(); setKioskDevice(false); nav('#/'); }
       } }, '학원 태블릿 등록 해제 (선생님용)'))));
 }
 
