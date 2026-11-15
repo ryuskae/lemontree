@@ -8,7 +8,14 @@ export const config = {
   academyName: '레몬트리',
 
   // Firebase 콘솔 > 프로젝트 설정 > 내 앱 > SDK 설정 및 구성 > 'npm' 대신 'CDN' 아래의 firebaseConfig 값
-  firebase: null,
+  // appId는 이 앱이 쓰는 기능(로그인, 데이터베이스)에는 필요하지 않아 넣지 않았습니다.
+  firebase: {
+    apiKey: 'AIzaSyAlyunUbLr9y44wigkKwjXAZReCvG7BYsk',
+    authDomain: 'lemontree-textbook.firebaseapp.com',
+    projectId: 'lemontree-textbook',
+    storageBucket: 'lemontree-textbook.firebasestorage.app',
+    messagingSenderId: '157095058478',
+  },
   // 예시:
   // firebase: {
   //   apiKey: 'AIza...',
