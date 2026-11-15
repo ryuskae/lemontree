@@ -53,6 +53,12 @@ export async function openReader(root, opts) {
   const zoomOutBtn = h('button', { class: 'tool nav', 'aria-label': '축소' }, icon('zoomOut'));
   const zoomInBtn = h('button', { class: 'tool nav', 'aria-label': '확대' }, icon('zoomIn'));
   const zoomLabel = h('button', { class: 'zoom-label', title: '화면에 맞추기' }, '100%');
+  // 전체보기에서 가운데를 한 번 누르면 잠깐 나타나는 작은 막대
+  const fzOut = h('button', { class: 'tool nav', 'aria-label': '축소' }, icon('zoomOut'));
+  const fzIn = h('button', { class: 'tool nav', 'aria-label': '확대' }, icon('zoomIn'));
+  const fzLabel = h('button', { class: 'zoom-label', title: '화면에 맞추기' }, '100%');
+  const fzExit = h('button', { class: 'tool nav', 'aria-label': '전체보기 끝내기' }, icon('close'));
+  const fullBar = h('div', { class: 'r-fullbar' }, fzOut, fzLabel, fzIn, h('span', { class: 'r-fullbar-sep' }), fzExit);
 
   const wrap = h('div', { class: 'reader' },
     h('header', { class: 'r-top' },
@@ -62,7 +68,7 @@ export async function openReader(root, opts) {
         tool('list', '목차', { onclick: () => toggleToc() }),
         segment, fullBtn, addTocBtn, dlBtn, likeBtn, markBtn)),
     banner,
-    h('div', { class: 'r-main' }, stage, tocPanel),
+    h('div', { class: 'r-main' }, stage, tocPanel, fullBar),
     h('footer', { class: 'r-bottom' },
       h('button', { class: 'tool nav', 'aria-label': '이전 쪽', onclick: () => prev() }, icon('left')),
       slider, pageLabel,
@@ -162,15 +168,24 @@ export async function openReader(root, opts) {
     full = true; wrap.classList.add('full');
     const req = fsEl.requestFullscreen || fsEl.webkitRequestFullscreen;
     if (req) Promise.resolve(req.call(fsEl)).catch(() => {});
-    toast('가운데를 두 번 누르면 전체보기가 끝나요');
+    toast('가운데를 누르면 확대 버튼이 나와요 · 두 번 누르면 전체보기가 끝나요');
   }
   function leaveFull() {
-    full = false; wrap.classList.remove('full');
+    full = false; wrap.classList.remove('full'); hideFullBar();
     const fe = document.fullscreenElement || document.webkitFullscreenElement;
     const ex = document.exitFullscreen || document.webkitExitFullscreen;
     if (fe && ex) Promise.resolve(ex.call(document)).catch(() => {});
   }
   fullBtn.onclick = enterFull;
+  let fullBarTimer;
+  function hideFullBar() { clearTimeout(fullBarTimer); fullBar.classList.remove('show'); }
+  function showFullBar() {
+    fullBar.classList.add('show');
+    clearTimeout(fullBarTimer);
+    fullBarTimer = setTimeout(hideFullBar, 3500);
+  }
+  fullBar.addEventListener('pointerdown', () => showFullBar());
+  fzExit.onclick = () => leaveFull();
   const onFsChange = () => { if (!(document.fullscreenElement || document.webkitFullscreenElement) && full) leaveFull(); };
   document.addEventListener('fullscreenchange', onFsChange);
   document.addEventListener('webkitfullscreenchange', onFsChange);
@@ -205,8 +220,9 @@ export async function openReader(root, opts) {
   let pendingFocus = null; // 확대 후에도 손가락 아래의 악보가 그 자리에 오도록
   const zoomSteps = [1, 1.25, 1.5, 2, 2.5, 3, 4];
   function paintZoom() {
-    zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
-    zoomOutBtn.disabled = zoom <= ZMIN; zoomInBtn.disabled = zoom >= ZMAX;
+    zoomLabel.textContent = fzLabel.textContent = `${Math.round(zoom * 100)}%`;
+    zoomOutBtn.disabled = fzOut.disabled = zoom <= ZMIN;
+    zoomInBtn.disabled = fzIn.disabled = zoom >= ZMAX;
   }
   // fx, fy: 화면(무대) 안에서 고정할 지점
   function focusAt(fx, fy) {
@@ -236,6 +252,9 @@ export async function openReader(root, opts) {
   zoomInBtn.onclick = () => stepZoom(1);
   zoomOutBtn.onclick = () => stepZoom(-1);
   zoomLabel.onclick = () => setZoom(1);
+  fzIn.onclick = () => stepZoom(1);
+  fzOut.onclick = () => stepZoom(-1);
+  fzLabel.onclick = () => setZoom(1);
 
   // 두 손가락으로 벌리고 오므리기
   let pinch = null, pinchEndAt = 0;
@@ -377,7 +396,8 @@ export async function openReader(root, opts) {
       else if (fx > 0.7) next();
       else if (full) {
         const now = Date.now();
-        if (now - lastCenterTap < 400) { lastCenterTap = 0; leaveFull(); } else lastCenterTap = now;
+        if (now - lastCenterTap < 400) { lastCenterTap = 0; leaveFull(); }
+        else { lastCenterTap = now; fullBar.classList.contains('show') ? hideFullBar() : showFullBar(); }
       }
     }
   });
