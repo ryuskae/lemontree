@@ -83,3 +83,50 @@ export function parseDriveId(input) {
   if (/^[a-zA-Z0-9_-]{20,}$/.test(s)) return s;
   return null;
 }
+
+// 어떤 쪽이 속한 곡(목차 항목)과 그 곡이 몇 쪽짜리인지, 지금 몇째 쪽인지
+export function songAt(book, page, numPages) {
+  const toc = sortToc(book.toc);
+  const n = numPages || book.numPages || 0;
+  let i = -1;
+  for (let k = 0; k < toc.length; k++) { if (toc[k].p <= page) i = k; else break; }
+  if (i < 0) return null;
+  const start = toc[i].p;
+  const end = i + 1 < toc.length ? toc[i + 1].p - 1 : (n || start);
+  return { title: toc[i].t, start, end, span: Math.max(1, end - start + 1), index: page - start + 1 };
+}
+
+// 진도를 사람이 읽기 좋게: "할아버지의 낡은 시계 · 3/4쪽"
+export function progressLabel(bm, book) {
+  if (!bm || !bm.page) return '';
+  if (book && bm.tocTitle) {
+    const toc = sortToc(book.toc);
+    const e = toc.find((x) => x.t === bm.tocTitle);
+    if (e) {
+      const s = songAt(book, e.p + (bm.offset || 0), book.numPages || bm.numPages);
+      if (s && s.title === bm.tocTitle) return s.span > 1 ? `${s.title} · ${s.index}/${s.span}쪽` : s.title;
+    }
+  }
+  return bookmarkText(bm);
+}
+
+// 학생에게 보일 교재: 카테고리마다 '지금 교재'와 그 앞 순서의 교재
+// tracks = { 카테고리ID: 지금교재ID }
+export function visibleBookIds(tracks, books) {
+  const out = [];
+  for (const [cat, cur] of Object.entries(tracks || {})) {
+    const curBook = books.find((b) => b.id === cur);
+    if (!curBook) continue;
+    books.filter((b) => b.categoryId === cat && (b.order || 0) <= (curBook.order || 0)).forEach((b) => out.push(b.id));
+  }
+  return [...new Set(out)];
+}
+
+export const byOrder = (a, b) => (a.order || 0) - (b.order || 0) || String(a.title || a.name).localeCompare(String(b.title || b.name), 'ko');
+
+// 날짜 입력값(YYYY-MM-DD) ↔ 밀리초
+export const dayStart = (s) => new Date(s + 'T00:00:00').getTime();
+export const ymd = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
+// 좋아요 문서 ID (학생·교재·곡마다 하나)
+export const likeId = (sid, bookId, song) => `${sid}__${bookId}__${Array.from(new TextEncoder().encode(song)).map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 300)}`;

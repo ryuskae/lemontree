@@ -26,7 +26,13 @@ service cloud.firestore {
     match /publicInfo/{d} { allow read: if true; allow write: if isAdmin(); }
     match /roles/{uid} { allow read: if isAdmin() || (signedIn() && request.auth.uid == uid); allow write: if isAdmin(); }
 
-    // 학생: 이름, 배정된 교재, 지금 교재, 마지막 접속
+    // 카테고리 이름과 순서
+    match /categories/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // 학생: 이름, 카테고리별 지금 교재(tracks), 보이는 교재(visible), 마지막 접속
     match /students/{uid} {
       allow read: if isAdmin() || isKiosk() || (signedIn() && request.auth.uid == uid);
       allow create, delete: if isAdmin();
@@ -36,15 +42,22 @@ service cloud.firestore {
     // 학생 생일(로그인 번호): 관리자만
     match /studentSecrets/{uid} { allow read, write: if isAdmin(); }
 
-    // 교재: 학생은 배정된 교재만 볼 수 있다
+    // 교재: 학생은 지금 교재와 그 앞 순서의 교재만 볼 수 있다
     match /books/{bookId} {
-      allow read: if isAdmin() || isKiosk() || (isStudent() && bookId in me().assigned);
+      allow read: if isAdmin() || isKiosk() || (isStudent() && bookId in me().visible);
       allow write: if isAdmin();
     }
 
     // 진도
     match /progress/{uid} {
       allow read, write: if isAdmin() || isKiosk() || (isStudent() && request.auth.uid == uid);
+    }
+
+    // 좋아요 (학생·교재·곡마다 문서 하나)
+    match /likes/{id} {
+      allow read: if isAdmin() || isKiosk() || (isStudent() && resource.data.sid == request.auth.uid);
+      allow create, update: if isKiosk() || (isStudent() && request.resource.data.sid == request.auth.uid);
+      allow delete: if isAdmin() || isKiosk() || (isStudent() && resource.data.sid == request.auth.uid);
     }
 
     // 연습 기록

@@ -13,7 +13,7 @@ import {
   serverTimestamp,
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { config } from './config.js';
-import { normName, normBirth } from './core.js';
+import { normName, normBirth, visibleBookIds, likeId, byOrder } from './core.js';
 
 export const demo = false;
 
@@ -165,7 +165,7 @@ export async function addStudent(name, birth) {
       throw e;
     }
   });
-  await setDoc(doc(db, 'students', uid), { name: n, active: true, assigned: [], current: null, lastSeen: null, createdAt: Date.now() }, { merge: true });
+  await setDoc(doc(db, 'students', uid), { name: n, active: true, tracks: {}, visible: [], lastSeen: null, createdAt: Date.now() }, { merge: true });
   await setDoc(doc(db, 'studentSecrets', uid), { birth: b });
   return uid;
 }
@@ -188,7 +188,7 @@ export async function touchStudent(id) { await updateDoc(doc(db, 'students', id)
 // 교재
 export async function listBooks() {
   const snap = await getDocs(collection(db, 'books'));
-  return snap.docs.map(plain).sort((a, b) => (a.order || 0) - (b.order || 0));
+  return snap.docs.map(plain).sort(byOrder);
 }
 export async function getBook(id) {
   try {
@@ -199,16 +199,56 @@ export async function getBook(id) {
 export async function getBooks(ids) { return (await Promise.all((ids || []).map(getBook))).filter(Boolean); }
 export async function addBook(data) {
   const all = await listBooks();
-  const order = Math.max(0, ...all.map((b) => b.order || 0)) + 1;
-  const ref = await addDoc(collection(db, 'books'), { toc: [], tocPages: 0, coverSingle: true, downloadable: false, order, createdAt: Date.now(), ...data });
+  const order = Math.max(0, ...all.filter((b) => (b.categoryId || null) === (data.categoryId || null)).map((b) => b.order || 0)) + 1;
+  const ref = await addDoc(collection(db, 'books'), { toc: [], tocPages: 0, coverSingle: true, downloadable: false, categoryId: null, order, createdAt: Date.now(), ...data });
   return ref.id;
 }
 export async function updateBook(id, patch) { await updateDoc(doc(db, 'books', id), patch); }
 export async function deleteBook(id) {
   await deleteDoc(doc(db, 'books', id));
   const studs = await listStudents();
-  await Promise.all(studs.filter((s) => (s.assigned || []).includes(id) || s.current === id).map((s) =>
-    updateStudent(s.id, { assigned: (s.assigned || []).filter((b) => b !== id), current: s.current === id ? null : s.current })));
+  await Promise.all(studs.filter((st) => Object.values(st.tracks || {}).includes(id)).map((st) => {
+    const tracks = { ...st.tracks };
+    for (const [c, b] of Object.entries(tracks)) if (b === id) delete tracks[c];
+    return updateStudent(st.id, { tracks });
+  }));
+  await refreshVisibleAll();
+}
+
+// 카테고리
+export async function listCategories() {
+  const snap = await getDocs(collection(db, 'categories'));
+  return snap.docs.map(plain).sort(byOrder);
+}
+export async function addCategory(name) {
+  const all = await listCategories();
+  const ref = await addDoc(collection(db, 'categories'), { name, order: Math.max(0, ...all.map((c) => c.order || 0)) + 1 });
+  return ref.id;
+}
+export async function updateCategory(id, patch) { await updateDoc(doc(db, 'categories', id), patch); }
+export async function deleteCategory(id) {
+  const books = await listBooks();
+  if (books.some((b) => b.categoryId === id)) throw new Error('카테고리 안에 교재가 있어요. 교재를 먼저 옮기거나 지워 주세요.');
+  await deleteDoc(doc(db, 'categories', id));
+  const studs = await listStudents();
+  await Promise.all(studs.filter((st) => st.tracks && st.tracks[id]).map((st) => {
+    const tracks = { ...st.tracks }; delete tracks[id];
+    return updateStudent(st.id, { tracks });
+  }));
+}
+
+// 학생이 지금 배우는 교재(카테고리마다 하나)와 그에 따라 보이는 교재
+export async function setTracks(sid, tracks) {
+  const books = await listBooks();
+  await updateDoc(doc(db, 'students', sid), { tracks, visible: visibleBookIds(tracks, books) });
+}
+export async function refreshVisibleAll() {
+  const [books, studs] = await Promise.all([listBooks(), listStudents()]);
+  await Promise.all(studs.map((st) => {
+    const v = visibleBookIds(st.tracks || {}, books);
+    if (JSON.stringify(v) === JSON.stringify(st.visible || [])) return null;
+    return updateDoc(doc(db, 'students', st.id), { visible: v });
+  }));
 }
 
 // 진도: progress/{학생} = { books: { 교재ID: { bm, lastPage, lastAt } } }
@@ -235,9 +275,23 @@ export async function startSession(data) {
   return ref.id;
 }
 export async function updateSession(id, patch) { await updateDoc(doc(db, 'sessions', id), patch).catch(() => {}); }
-export async function listSessions(days = 30) {
-  const since = Date.now() - days * 86400000;
-  const snap = await getDocs(query(collection(db, 'sessions'), where('start', '>=', since), orderBy('start', 'desc'), limit(2000)));
+export async function listSessions(from, to = Date.now() + 86400000) {
+  const snap = await getDocs(query(collection(db, 'sessions'), where('start', '>=', from), where('start', '<', to), orderBy('start', 'desc'), limit(3000)));
+  return snap.docs.map(plain);
+}
+
+// 좋아요: likes/{학생__교재__곡}
+export async function getMyLikes(sid) {
+  const snap = await getDocs(query(collection(db, 'likes'), where('sid', '==', sid)));
+  return snap.docs.map(plain);
+}
+export async function setLike(sid, name, book, song, on) {
+  const ref = doc(db, 'likes', likeId(sid, book.id, song));
+  if (on) await setDoc(ref, { sid, name, bookId: book.id, bookTitle: book.title, song, at: Date.now() });
+  else await deleteDoc(ref);
+}
+export async function listLikes() {
+  const snap = await getDocs(collection(db, 'likes'));
   return snap.docs.map(plain);
 }
 

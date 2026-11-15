@@ -66,3 +66,31 @@ export function busy(btn, on, label) {
   if (on) { btn.dataset.label = btn.textContent; btn.textContent = label || '잠시만요…'; btn.disabled = true; }
   else { btn.textContent = btn.dataset.label || btn.textContent; btn.disabled = false; }
 }
+
+// 선 아이콘 (24×24, 2px 선)
+const ICONS = {
+  back: '<path d="M15 18l-6-6 6-6"/>',
+  left: '<path d="M15 18l-6-6 6-6"/>',
+  right: '<path d="M9 18l6-6-6-6"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/>',
+  page1: '<rect x="6" y="3" width="12" height="18" rx="2"/>',
+  page2: '<rect x="2" y="4" width="9" height="16" rx="1.5"/><rect x="13" y="4" width="9" height="16" rx="1.5"/>',
+  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  heart: '<path d="M12 20s-7-4.4-9.2-8.6C1.3 8.3 3.1 5 6.4 5c2.1 0 3.4 1.2 4.1 2.3h3c.7-1.1 2-2.3 4.1-2.3 3.3 0 5.1 3.3 3.6 6.4C19 15.6 12 20 12 20z" transform="translate(0 -.5)"/>',
+  bookmark: '<path d="M6 3h12v18l-6-4.5L6 21z"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  chevron: '<path d="M9 18l6-6-6-6"/>',
+  up: '<path d="M6 15l6-6 6 6"/>',
+  down: '<path d="M6 9l6 6 6-6"/>',
+  trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+};
+export function icon(name, cls = '') {
+  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('aria-hidden', 'true');
+  s.setAttribute('class', 'ic ' + cls);
+  s.innerHTML = ICONS[name] || '';
+  return s;
+}

@@ -1,9 +1,9 @@
 // 체험 모드 저장소: 이 브라우저의 localStorage에만 저장되는 시험용 데이터
 // Firebase 저장소(store-firebase.js)와 똑같은 함수들을 제공한다.
 
-import { normName, normBirth } from './core.js';
+import { normName, normBirth, visibleBookIds, likeId, byOrder } from './core.js';
 
-const KEY = 'lt-demo-v1';
+const KEY = 'lt-demo-v2';
 const SESSION_KEY = 'lt-demo-session';
 
 const DEMO_TOC = [
@@ -19,30 +19,43 @@ const DEMO_TOC = [
 function seed() {
   const now = Date.now();
   const day = 86400000;
-  const db = {
+  return {
+    categories: {
+      c1: { name: '일렉기타', order: 1 },
+      c2: { name: '클래식기타', order: 2 },
+    },
     students: {
-      s1: { name: '민준', active: true, assigned: ['b1', 'b2'], current: 'b1', lastSeen: now - day, createdAt: now - 30 * day },
-      s2: { name: '서연', active: true, assigned: ['b1'], current: 'b1', lastSeen: now - 3 * day, createdAt: now - 20 * day },
-      s3: { name: '지호', active: true, assigned: [], current: null, lastSeen: null, createdAt: now - 2 * day },
+      s1: { name: '민준', active: true, tracks: { c1: 'b1', c2: 'b3' }, visible: ['b1', 'b2', 'b3'], lastSeen: now - day, createdAt: now - 30 * day },
+      s2: { name: '서연', active: true, tracks: { c1: 'b1' }, visible: ['b1'], lastSeen: now - 3 * day, createdAt: now - 20 * day },
+      s3: { name: '지호', active: true, tracks: {}, visible: [], lastSeen: null, createdAt: now - 2 * day },
     },
     secrets: { s1: { birth: '0315' }, s2: { birth: '1102' }, s3: { birth: '0707' } },
     books: {
-      b1: { title: '체험용 기타 교재', src: 'samples/demo-book.pdf', toc: DEMO_TOC, tocPages: 12, numPages: 12, coverSingle: true, downloadable: true, order: 1, createdAt: now - 30 * day },
-      b2: { title: '헨델 미뉴에트 (오선+타브)', src: 'samples/minuet.pdf', toc: [], tocPages: 0, numPages: 1, coverSingle: false, downloadable: false, order: 2, createdAt: now - 30 * day },
-      b3: { title: '할아버지의 낡은 시계', src: 'samples/clock.pdf', toc: [], tocPages: 0, numPages: 2, coverSingle: false, downloadable: true, order: 3, createdAt: now - 10 * day },
+      b1: { title: '체험용 일렉기타 1권', categoryId: 'c1', order: 1, src: 'samples/demo-book.pdf', toc: DEMO_TOC, tocPages: 12, numPages: 12, coverSingle: true, downloadable: true, createdAt: now - 30 * day },
+      b4: { title: '체험용 일렉기타 2권', categoryId: 'c1', order: 2, src: 'samples/demo-book.pdf', toc: DEMO_TOC, tocPages: 12, numPages: 12, coverSingle: true, downloadable: false, createdAt: now - 30 * day },
+      b2: { title: '헨델 미뉴에트', categoryId: 'c2', order: 1, src: 'samples/minuet.pdf', toc: [{ t: '미뉴에트 7', p: 1 }], tocPages: 1, numPages: 1, coverSingle: false, downloadable: false, createdAt: now - 30 * day },
+      b3: { title: '할아버지의 낡은 시계', categoryId: 'c2', order: 2, src: 'samples/clock.pdf', toc: [{ t: '할아버지의 낡은 시계', p: 1 }], tocPages: 2, numPages: 2, coverSingle: false, downloadable: true, createdAt: now - 10 * day },
     },
     progress: {
-      s1: { b1: { bm: { page: 4, tocTitle: '연습곡 2 5번줄', offset: 0, numPages: 12, savedAt: now - day }, lastPage: 4, lastAt: now - day } },
+      s1: {
+        b1: { bm: { page: 4, tocTitle: '연습곡 2 5번줄', offset: 0, numPages: 12, savedAt: now - day }, lastPage: 4, lastAt: now - day },
+        b3: { bm: { page: 2, tocTitle: '할아버지의 낡은 시계', offset: 1, numPages: 2, savedAt: now - 2 * day }, lastPage: 2, lastAt: now - 2 * day },
+      },
       s2: { b1: { bm: { page: 7, tocTitle: '2단원 할아버지의 낡은 시계', offset: 1, numPages: 12, savedAt: now - 3 * day }, lastPage: 7, lastAt: now - 3 * day } },
     },
     sessions: {
-      x1: { sid: 's1', name: '민준', kind: 'read', bookId: 'b1', bookTitle: '체험용 기타 교재', mode: 'academy', start: now - day, seconds: 1260, minPage: 3, maxPage: 4, pagesSeen: 2 },
-      x2: { sid: 's1', name: '민준', kind: 'read', bookId: 'b1', bookTitle: '체험용 기타 교재', mode: 'home', start: now - 2 * day, seconds: 540, minPage: 3, maxPage: 3, pagesSeen: 1 },
-      x3: { sid: 's2', name: '서연', kind: 'read', bookId: 'b1', bookTitle: '체험용 기타 교재', mode: 'academy', start: now - 3 * day, seconds: 1500, minPage: 6, maxPage: 7, pagesSeen: 2 },
+      x1: { sid: 's1', name: '민준', kind: 'read', bookId: 'b1', bookTitle: '체험용 일렉기타 1권', mode: 'academy', start: now - day, seconds: 1260, minPage: 3, maxPage: 4, pagesSeen: 2 },
+      x2: { sid: 's1', name: '민준', kind: 'read', bookId: 'b3', bookTitle: '할아버지의 낡은 시계', mode: 'home', start: now - 2 * day, seconds: 540, minPage: 1, maxPage: 2, pagesSeen: 2 },
+      x3: { sid: 's2', name: '서연', kind: 'read', bookId: 'b1', bookTitle: '체험용 일렉기타 1권', mode: 'academy', start: now - 3 * day, seconds: 1500, minPage: 6, maxPage: 7, pagesSeen: 2 },
+      x4: { sid: 's2', name: '서연', kind: 'read', bookId: 'b1', bookTitle: '체험용 일렉기타 1권', mode: 'home', start: now - 40 * day, seconds: 900, minPage: 3, maxPage: 5, pagesSeen: 3 },
     },
+    likes: Object.fromEntries([
+      { sid: 's1', name: '민준', bookId: 'b3', bookTitle: '할아버지의 낡은 시계', song: '할아버지의 낡은 시계', at: now - 2 * day },
+      { sid: 's2', name: '서연', bookId: 'b1', bookTitle: '체험용 일렉기타 1권', song: '2단원 할아버지의 낡은 시계', at: now - 3 * day },
+      { sid: 's1', name: '민준', bookId: 'b1', bookTitle: '체험용 일렉기타 1권', song: '3단원 헨델의 미뉴에트', at: now - day },
+    ].map((l) => [likeId(l.sid, l.bookId, l.song), l])),
     kiosk: { password: '' },
   };
-  return db;
 }
 
 let db = null;
@@ -109,7 +122,7 @@ export async function addStudent(name, birth) {
     throw new Error(`이미 '${n}' 학생이 있습니다. '${n}B'처럼 구분할 수 있는 이름으로 등록해 주세요.`);
   }
   const id = 's' + uid();
-  db.students[id] = { name: n, active: true, assigned: [], current: null, lastSeen: null, createdAt: Date.now() };
+  db.students[id] = { name: n, active: true, tracks: {}, visible: [], lastSeen: null, createdAt: Date.now() };
   db.secrets[id] = { birth: normBirth(birth) };
   save();
   return id;
@@ -121,24 +134,55 @@ export async function touchStudent(id) { if (db.students[id]) { db.students[id].
 
 // 교재
 export async function listBooks() {
-  return Object.entries(db.books).map(([id, b]) => ({ id, ...clone(b) })).sort((a, b) => (a.order || 0) - (b.order || 0));
+  return Object.entries(db.books).map(([id, b]) => ({ id, ...clone(b) })).sort(byOrder);
 }
 export async function getBook(id) { const b = db.books[id]; return b ? { id, ...clone(b) } : null; }
 export async function getBooks(ids) { return (await Promise.all((ids || []).map(getBook))).filter(Boolean); }
 export async function addBook(data) {
   const id = 'b' + uid();
-  const order = Math.max(0, ...Object.values(db.books).map((b) => b.order || 0)) + 1;
-  db.books[id] = { toc: [], tocPages: 0, coverSingle: true, downloadable: false, order, createdAt: Date.now(), ...clone(data) };
+  const order = Math.max(0, ...Object.values(db.books).filter((b) => b.categoryId === (data.categoryId || null)).map((b) => b.order || 0)) + 1;
+  db.books[id] = { toc: [], tocPages: 0, coverSingle: true, downloadable: false, categoryId: null, order, createdAt: Date.now(), ...clone(data) };
   save();
   return id;
 }
 export async function updateBook(id, patch) { Object.assign(db.books[id], clone(patch)); save(); }
 export async function deleteBook(id) {
   delete db.books[id];
-  for (const s of Object.values(db.students)) {
-    s.assigned = (s.assigned || []).filter((b) => b !== id);
-    if (s.current === id) s.current = null;
+  for (const st of Object.values(db.students)) {
+    for (const [c, b] of Object.entries(st.tracks || {})) if (b === id) delete st.tracks[c];
   }
+  save();
+  await refreshVisibleAll();
+}
+
+// 카테고리
+export async function listCategories() {
+  return Object.entries(db.categories).map(([id, c]) => ({ id, ...clone(c) })).sort(byOrder);
+}
+export async function addCategory(name) {
+  const id = 'c' + uid();
+  db.categories[id] = { name, order: Math.max(0, ...Object.values(db.categories).map((c) => c.order || 0)) + 1 };
+  save();
+  return id;
+}
+export async function updateCategory(id, patch) { Object.assign(db.categories[id], clone(patch)); save(); }
+export async function deleteCategory(id) {
+  if (Object.values(db.books).some((b) => b.categoryId === id)) throw new Error('카테고리 안에 교재가 있어요. 교재를 먼저 옮기거나 지워 주세요.');
+  delete db.categories[id];
+  for (const st of Object.values(db.students)) if (st.tracks) delete st.tracks[id];
+  save();
+}
+
+// 학생이 지금 배우는 교재(카테고리마다 하나)와 그에 따라 보이는 교재
+export async function setTracks(sid, tracks) {
+  const books = await listBooks();
+  db.students[sid].tracks = clone(tracks);
+  db.students[sid].visible = visibleBookIds(tracks, books);
+  save();
+}
+export async function refreshVisibleAll() {
+  const books = await listBooks();
+  for (const st of Object.values(db.students)) st.visible = visibleBookIds(st.tracks || {}, books);
   save();
 }
 
@@ -166,11 +210,22 @@ export async function startSession(data) {
 export async function updateSession(id, patch) {
   if (db.sessions[id]) { Object.assign(db.sessions[id], clone(patch)); save(); }
 }
-export async function listSessions(days = 30) {
-  const since = Date.now() - days * 86400000;
-  return Object.entries(db.sessions).map(([id, s]) => ({ id, ...clone(s) }))
-    .filter((s) => s.start >= since).sort((a, b) => b.start - a.start);
+export async function listSessions(from, to = Date.now() + 86400000) {
+  return Object.entries(db.sessions).map(([id, x]) => ({ id, ...clone(x) }))
+    .filter((x) => x.start >= from && x.start < to).sort((a, b) => b.start - a.start);
 }
+
+// 좋아요
+export async function getMyLikes(sid) {
+  return Object.values(db.likes).filter((l) => l.sid === sid).map(clone);
+}
+export async function setLike(sid, name, book, song, on) {
+  const id = likeId(sid, book.id, song);
+  if (on) db.likes[id] = { sid, name, bookId: book.id, bookTitle: book.title, song, at: Date.now() };
+  else delete db.likes[id];
+  save();
+}
+export async function listLikes() { return Object.values(db.likes).map(clone); }
 
 // 학원 태블릿
 export async function kioskStatus() { return { exists: !!db.kiosk.password }; }
