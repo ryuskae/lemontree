@@ -1,0 +1,58 @@
+rules_version = '2';
+// 레몬트리 전자 교재 보안 규칙
+// Firebase 콘솔 > Firestore Database > 규칙 탭에 이 내용을 통째로 붙여 넣고 '게시'를 누르세요.
+// 아래 ADMIN_EMAIL 자리에 선생님 구글 계정 주소를 넣어야 합니다.
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signedIn() { return request.auth != null; }
+    function isAdmin() {
+      return signedIn() && request.auth.token.email == 'ADMIN_EMAIL'
+        && request.auth.token.email_verified == true;
+    }
+    function isKiosk() {
+      return signedIn() && exists(/databases/$(db)/documents/roles/$(request.auth.uid))
+        && get(/databases/$(db)/documents/roles/$(request.auth.uid)).data.role == 'kiosk';
+    }
+    function me() { return get(/databases/$(db)/documents/students/$(request.auth.uid)).data; }
+    function isStudent() {
+      return signedIn() && exists(/databases/$(db)/documents/students/$(request.auth.uid)) && me().active == true;
+    }
+    function onlyChanges(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+
+    // 관리자인지 확인하는 데만 쓰는 빈 문서
+    match /adminCheck/{d} { allow read: if isAdmin(); }
+
+    // 학원 태블릿 계정 주소 (비밀번호는 여기 없음)
+    match /publicInfo/{d} { allow read: if true; allow write: if isAdmin(); }
+    match /roles/{uid} { allow read: if isAdmin() || (signedIn() && request.auth.uid == uid); allow write: if isAdmin(); }
+
+    // 학생: 이름, 배정된 교재, 지금 교재, 마지막 접속
+    match /students/{uid} {
+      allow read: if isAdmin() || isKiosk() || (signedIn() && request.auth.uid == uid);
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || ((isKiosk() || (signedIn() && request.auth.uid == uid)) && onlyChanges(['lastSeen']));
+    }
+    // 학생 생일(로그인 번호): 관리자만
+    match /studentSecrets/{uid} { allow read, write: if isAdmin(); }
+
+    // 교재: 학생은 배정된 교재만 볼 수 있다
+    match /books/{bookId} {
+      allow read: if isAdmin() || isKiosk() || (isStudent() && bookId in me().assigned);
+      allow write: if isAdmin();
+    }
+
+    // 진도
+    match /progress/{uid} {
+      allow read, write: if isAdmin() || isKiosk() || (isStudent() && request.auth.uid == uid);
+    }
+
+    // 연습 기록
+    match /sessions/{id} {
+      allow read, delete: if isAdmin();
+      allow create: if isAdmin() || isKiosk() || (isStudent() && request.resource.data.sid == request.auth.uid);
+      allow update: if isKiosk()
+        || (isStudent() && resource.data.sid == request.auth.uid && request.resource.data.sid == request.auth.uid);
+    }
+  }
+}
