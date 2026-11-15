@@ -4,12 +4,14 @@
 // 체험 모드는 이 기기의 브라우저에만 저장되는 시험용 데이터와 견본 교재를 씁니다.
 // Firebase 프로젝트를 만든 뒤 콘솔의 '웹 앱' 설정값을 그대로 붙여 넣으면 실제 모드로 바뀝니다.
 
+// 개발용: localhost에서 열면 언제나 체험 모드로 동작합니다.
+const TEST_DEMO = typeof location !== 'undefined' && location.hostname === 'localhost';
 export const config = {
   academyName: '레몬트리',
 
   // Firebase 콘솔 > 프로젝트 설정 > 내 앱 > SDK 설정 및 구성 > 'npm' 대신 'CDN' 아래의 firebaseConfig 값
   // appId는 이 앱이 쓰는 기능(로그인, 데이터베이스)에는 필요하지 않아 넣지 않았습니다.
-  firebase: {
+  firebase: TEST_DEMO ? null : {
     apiKey: 'AIzaSyAlyunUbLr9y44wigkKwjXAZReCvG7BYsk',
     authDomain: 'lemontree-textbook.firebaseapp.com',
     projectId: 'lemontree-textbook',
@@ -17,7 +19,7 @@ export const config = {
     messagingSenderId: '157095058478',
   },
   // 예시:
-  // firebase: {
+  // firebase: TEST_DEMO ? null : {
   //   apiKey: 'AIza...',
   //   authDomain: 'lemontree-textbook.firebaseapp.com',
   //   projectId: 'lemontree-textbook',

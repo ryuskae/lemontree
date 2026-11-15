@@ -50,6 +50,9 @@ export async function openReader(root, opts) {
   const markBtn = tracking ? h('button', { class: 'tool primary', title: '여기까지 연습했어요' }, icon('bookmark'), h('span', null, '진도 저장')) : null;
   const dlBtn = book.downloadable ? tool('download', '내려받기') : null;
   const addTocBtn = role === 'admin' ? tool('plus', '목차에 추가') : null;
+  const zoomOutBtn = h('button', { class: 'tool nav', 'aria-label': '축소' }, icon('zoomOut'));
+  const zoomInBtn = h('button', { class: 'tool nav', 'aria-label': '확대' }, icon('zoomIn'));
+  const zoomLabel = h('button', { class: 'zoom-label', title: '화면에 맞추기' }, '100%');
 
   const wrap = h('div', { class: 'reader' },
     h('header', { class: 'r-top' },
@@ -63,6 +66,7 @@ export async function openReader(root, opts) {
     h('footer', { class: 'r-bottom' },
       h('button', { class: 'tool nav', 'aria-label': '이전 쪽', onclick: () => prev() }, icon('left')),
       slider, pageLabel,
+      h('div', { class: 'zoom-group' }, zoomOutBtn, zoomLabel, zoomInBtn),
       h('button', { class: 'tool nav', 'aria-label': '다음 쪽', onclick: () => next() }, icon('right'))));
   root.replaceChildren(wrap);
 
@@ -98,6 +102,13 @@ export async function openReader(root, opts) {
   }
   book = { ...book, numPages: n };
 
+  // 곡 이름으로 시작 쪽 찾기 (목차가 없는 교재는 교재 이름이 곧 곡 이름)
+  function songPage(song) {
+    const e = (book.toc || []).find((x) => x.t === song);
+    if (e) return Math.min(n, Math.max(1, e.p));
+    return song === book.title ? 1 : null;
+  }
+
   // ---------- 진도 ----------
   let entry = opts.entry || {};
   const resolved = resolveBookmark(entry.bm, book, n);
@@ -106,6 +117,8 @@ export async function openReader(root, opts) {
   let start = 1;
   if (resolved && resolved.status === 'ok') start = resolved.page;
   else if (entry.lastPage && entry.lastPage <= n) start = entry.lastPage;
+  const songStart = opts.startSong ? songPage(opts.startSong) : null;
+  if (songStart) start = songStart;
 
   const showBanner = (content, kind = '', autoHide = 0) => {
     banner.className = 'r-banner ' + kind;
@@ -118,7 +131,9 @@ export async function openReader(root, opts) {
   };
   updateSub();
 
-  if (resolved && resolved.status === 'ok') {
+  if (songStart) {
+    showBanner(`좋아요한 곡으로 이동했어요 · ${opts.startSong}`, 'ok', 3500);
+  } else if (resolved && resolved.status === 'ok') {
     showBanner(`지난 진도로 이동했어요 · ${progressLabel(entry.bm, book)}`, 'ok', 3500);
   } else if (resolved && resolved.status === 'unsure') {
     showBanner(h('span', null, `교재가 바뀌어서 진도 위치가 달라졌을 수 있어요. 지난 진도: ${progressLabel(entry.bm, book)} `,
@@ -182,6 +197,89 @@ export async function openReader(root, opts) {
   const clearCache = () => cache.clear();
   let page = start;
   let token = 0;
+  let shownPage = 0;
+
+  // ---------- 확대 ----------
+  const ZMIN = 1, ZMAX = 4;
+  let zoom = 1;
+  let pendingFocus = null; // 확대 후에도 손가락 아래의 악보가 그 자리에 오도록
+  const zoomSteps = [1, 1.25, 1.5, 2, 2.5, 3, 4];
+  function paintZoom() {
+    zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+    zoomOutBtn.disabled = zoom <= ZMIN; zoomInBtn.disabled = zoom >= ZMAX;
+  }
+  // fx, fy: 화면(무대) 안에서 고정할 지점
+  function focusAt(fx, fy) {
+    const sp = stage.querySelector('.r-spread');
+    if (!sp) return null;
+    return {
+      fx, fy,
+      rx: (stage.scrollLeft + fx - sp.offsetLeft) / sp.offsetWidth,
+      ry: (stage.scrollTop + fy - sp.offsetTop) / sp.offsetHeight,
+    };
+  }
+  function setZoom(z, focus) {
+    z = Math.round(Math.max(ZMIN, Math.min(ZMAX, z)) * 100) / 100;
+    if (Math.abs(z - 1) < 0.06) z = 1;
+    if (z === zoom) { const sp = stage.querySelector('.r-spread'); if (sp) sp.style.transform = ''; return; }
+    const r = stage.getBoundingClientRect();
+    pendingFocus = focus || focusAt(r.width / 2, r.height / 2);
+    zoom = z;
+    show();
+  }
+  const stepZoom = (dir, focus) => {
+    const i = zoomSteps.findIndex((v) => v >= zoom - 0.01);
+    const cur = i < 0 ? zoomSteps.length - 1 : i;
+    const target = dir > 0 ? (zoomSteps[cur] > zoom + 0.01 ? zoomSteps[cur] : zoomSteps[Math.min(zoomSteps.length - 1, cur + 1)]) : zoomSteps[Math.max(0, zoomSteps[cur] < zoom - 0.01 ? cur : cur - 1)];
+    setZoom(target, focus);
+  };
+  zoomInBtn.onclick = () => stepZoom(1);
+  zoomOutBtn.onclick = () => stepZoom(-1);
+  zoomLabel.onclick = () => setZoom(1);
+
+  // 두 손가락으로 벌리고 오므리기
+  let pinch = null, pinchEndAt = 0;
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const mid = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
+  stage.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 2) return;
+    const sp = stage.querySelector('.r-spread');
+    if (!sp) return;
+    const m = mid(e.touches), r = stage.getBoundingClientRect(), sr = sp.getBoundingClientRect();
+    pinch = { d0: dist(e.touches), z0: zoom, focus: focusAt(m.x - r.left, m.y - r.top), sp, ox: m.x - sr.left, oy: m.y - sr.top, scale: 1, m };
+    sp.style.transformOrigin = `${pinch.ox}px ${pinch.oy}px`;
+    down = null;
+  }, { passive: true });
+  stage.addEventListener('touchmove', (e) => {
+    if (!pinch || e.touches.length !== 2) return;
+    e.preventDefault();
+    const s = Math.max(ZMIN / pinch.z0, Math.min(ZMAX / pinch.z0, dist(e.touches) / pinch.d0));
+    pinch.scale = s; pinch.m = mid(e.touches);
+    pinch.sp.style.transform = `scale(${s})`;
+  }, { passive: false });
+  const endPinch = () => {
+    if (!pinch) return;
+    const p = pinch; pinch = null; pinchEndAt = Date.now();
+    const r = stage.getBoundingClientRect();
+    setZoom(p.z0 * p.scale, p.focus && { ...p.focus, fx: p.m.x - r.left, fy: p.m.y - r.top });
+  };
+  stage.addEventListener('touchend', (e) => { if (e.touches.length < 2) endPinch(); });
+  stage.addEventListener('touchcancel', endPinch);
+  // 아이패드 사파리가 화면 전체를 확대하지 않도록
+  const stopGesture = (e) => e.preventDefault();
+  stage.addEventListener('gesturestart', stopGesture);
+  stage.addEventListener('gesturechange', stopGesture);
+  // 컴퓨터: Ctrl + 휠, 트랙패드 오므리기
+  stage.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    const r = stage.getBoundingClientRect();
+    clearTimeout(wheelTimer);
+    wheelZoom = (wheelZoom || zoom) * Math.exp(-e.deltaY / 200);
+    const f = focusAt(e.clientX - r.left, e.clientY - r.top);
+    wheelTimer = setTimeout(() => { const z = wheelZoom; wheelZoom = 0; setZoom(z, f); }, 120);
+  }, { passive: false });
+  let wheelTimer, wheelZoom = 0;
 
   async function renderPage(p, boxW, boxH) {
     const key = `${p}@${boxW}x${boxH}`;
@@ -190,7 +288,9 @@ export async function openReader(root, opts) {
       const pg = await pdf.getPage(p);
       const v1 = pg.getViewport({ scale: 1 });
       const scale = Math.min(boxW / v1.width, boxH / v1.height);
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      // 태블릿 브라우저의 캔버스 한도(약 1,600만 화소)를 넘지 않도록 선명도를 조절한다
+      const cssW = v1.width * scale, cssH = v1.height * scale;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(12e6 / (cssW * cssH)));
       const vp = pg.getViewport({ scale: scale * dpr });
       const c = h('canvas', { class: 'r-page' });
       c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
@@ -214,9 +314,12 @@ export async function openReader(root, opts) {
   async function show() {
     const my = ++token;
     const pages = visible(page);
+    const pageChanged = pages[0] !== shownPage;
     page = pages[0];
     paintSegment();
-    const [bw, bh] = boxSize(isTwo() ? 2 : 1);
+    const [bw0, bh0] = boxSize(isTwo() ? 2 : 1);
+    const bw = Math.round(bw0 * zoom), bh = Math.round(bh0 * zoom);
+    paintZoom();
     slider.value = page;
     pageLabel.textContent = pages.length === 2 ? `${pages[0]}–${pages[1]} / ${n}` : `${pages[0]} / ${n}`;
     highlightToc();
@@ -226,7 +329,17 @@ export async function openReader(root, opts) {
     try { canvases = await Promise.all(pages.map((p) => renderPage(p, bw, bh))); } catch { return; }
     if (my !== token) return;
     const spread = h('div', { class: 'r-spread' + (pages.length === 2 ? ' two' : '') }, canvases);
+    stage.classList.toggle('zoomed', zoom > 1);
     stage.replaceChildren(spread);
+    shownPage = pages[0];
+    if (zoom > 1) {
+      if (pendingFocus) {
+        const f = pendingFocus;
+        stage.scrollLeft = spread.offsetLeft + f.rx * spread.offsetWidth - f.fx;
+        stage.scrollTop = spread.offsetTop + f.ry * spread.offsetHeight - f.fy;
+      } else if (pageChanged) stage.scrollTop = 0;
+    }
+    pendingFocus = null;
     // 다음·이전 쪽을 미리 그려 둔다
     const ahead = visible(Math.min(n, pages[pages.length - 1] + 1));
     const behind = visible(Math.max(1, pages[0] - 1));
@@ -242,12 +355,21 @@ export async function openReader(root, opts) {
 
   // 넘기기: 화면 왼쪽·오른쪽 누르기, 밀기, 키보드. 전체보기에서는 가운데를 두 번 누르면 끝난다.
   let down = null, lastCenterTap = 0;
-  stage.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY, t: Date.now() }; });
+  stage.addEventListener('pointerdown', (e) => {
+    if (!e.isPrimary || pinch) { down = null; return; }
+    down = { x: e.clientX, y: e.clientY, t: Date.now(), sl: stage.scrollLeft, st: stage.scrollTop, mouse: e.pointerType === 'mouse' };
+  });
+  stage.addEventListener('pointermove', (e) => {
+    if (!down || !down.mouse || zoom <= 1) return;
+    stage.scrollLeft = down.sl - (e.clientX - down.x);
+    stage.scrollTop = down.st - (e.clientY - down.y);
+  });
+  stage.addEventListener('pointercancel', () => { down = null; });
   stage.addEventListener('pointerup', (e) => {
-    if (!down) return;
+    if (!down || pinch || Date.now() - pinchEndAt < 350) { down = null; return; }
     const dx = e.clientX - down.x, dy = e.clientY - down.y, dt = Date.now() - down.t;
     down = null;
-    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.3) { dx < 0 ? next() : prev(); return; }
+    if (zoom <= 1 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.3) { dx < 0 ? next() : prev(); return; }
     if (dt < 400 && Math.abs(dx) < 12 && Math.abs(dy) < 12) {
       const r = stage.getBoundingClientRect();
       const fx = (e.clientX - r.left) / r.width;
@@ -264,6 +386,9 @@ export async function openReader(root, opts) {
     if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); next(); }
     if (['ArrowLeft', 'PageUp'].includes(e.key)) { e.preventDefault(); prev(); }
     if (e.key === 'Escape' && full) leaveFull();
+    if (e.key === '+' || e.key === '=') { e.preventDefault(); stepZoom(1); }
+    if (e.key === '-') { e.preventDefault(); stepZoom(-1); }
+    if (e.key === '0') { e.preventDefault(); setZoom(1); }
   };
   document.addEventListener('keydown', onKey);
   cleanups.push(() => document.removeEventListener('keydown', onKey));
@@ -274,17 +399,40 @@ export async function openReader(root, opts) {
   cleanups.push(() => ro.disconnect());
 
   // ---------- 목차 ----------
+  let tocTab = 'toc';
   function buildToc() {
     const toc = sortToc(book.toc);
-    tocPanel.replaceChildren(
-      h('div', { class: 'r-toc-head' }, h('strong', null, '목차'), h('button', { class: 'icon-btn', 'aria-label': '닫기', onclick: () => toggleToc(false) }, icon('close'))),
-      toc.length
+    const tabBtn = (key, label) => h('button', { class: 'seg' + (tocTab === key ? ' on' : ''), onclick: () => { tocTab = key; buildToc(); } }, label);
+    const mine = myLikes.slice().sort((a, b) => (songPage(a.song) || 1e9) - (songPage(b.song) || 1e9));
+    const others = (opts.likes || []).filter((l) => l.bookId !== book.id && (!opts.visibleIds || opts.visibleIds.includes(l.bookId)));
+    const closeIfNarrow = () => { if (window.innerWidth < 900) toggleToc(false); };
+
+    let body;
+    if (tocTab === 'toc') {
+      body = toc.length
         ? h('ol', { class: 'r-toc-list' }, toc.map((e) => h('li', null,
-          h('button', { 'data-p': e.p, onclick: () => { go(e.p); if (window.innerWidth < 900) toggleToc(false); } },
+          h('button', { 'data-p': e.p, onclick: () => { go(e.p); closeIfNarrow(); } },
             h('span', null, e.t, likedSongs().has(e.t) ? h('span', { class: 'heart-mini' }, ' ♥') : null), h('span', { class: 'muted' }, `${e.p}`)))))
-        : h('p', { class: 'muted pad' }, '목차가 없는 교재입니다. 아래 막대로 쪽을 옮겨 주세요.'),
-      entry.bm ? h('div', { class: 'r-toc-mark' }, h('div', { class: 'muted small' }, '내 진도'),
-        h('button', { class: 'linkish', onclick: () => { const r = resolveBookmark(entry.bm, book, n); if (r && r.page) go(r.page); } }, progressLabel(entry.bm, book))) : null);
+        : h('p', { class: 'muted pad' }, '목차가 없는 교재입니다. 아래 막대로 쪽을 옮겨 주세요.');
+    } else {
+      const row = (song, sub, onclick) => h('li', null, h('button', { onclick, disabled: !onclick },
+        h('span', null, h('span', { class: 'heart-mini' }, '♥ '), song), h('span', { class: 'muted' }, sub)));
+      body = h('div', null,
+        mine.length || others.length ? null : h('p', { class: 'muted pad' }, '아직 좋아요를 누른 곡이 없어요. 마음에 드는 곡에서 좋아요를 눌러 보세요.'),
+        mine.length ? h('ol', { class: 'r-toc-list' }, mine.map((l) => {
+          const p = songPage(l.song);
+          return row(l.song, p ? `${p}` : '목차에 없음', p ? () => { go(p); closeIfNarrow(); } : null);
+        })) : null,
+        others.length ? h('div', { class: 'r-toc-sub' }, '다른 교재') : null,
+        others.length ? h('ol', { class: 'r-toc-list' }, others.map((l) => row(l.song, l.bookTitle || '', opts.onOpenSong ? () => opts.onOpenSong(l.bookId, l.song) : null))) : null);
+    }
+    tocPanel.replaceChildren(...[
+      h('div', { class: 'r-toc-head' },
+        tracking ? h('div', { class: 'segmented' }, tabBtn('toc', '목차'), tabBtn('likes', `좋아요 ${myLikes.length + others.length}`)) : h('strong', null, '목차'),
+        h('button', { class: 'icon-btn', 'aria-label': '닫기', onclick: () => toggleToc(false) }, icon('close'))),
+      body,
+      entry.bm && tocTab === 'toc' ? h('div', { class: 'r-toc-mark' }, h('div', { class: 'muted small' }, '내 진도'),
+        h('button', { class: 'linkish', onclick: () => { const r = resolveBookmark(entry.bm, book, n); if (r && r.page) go(r.page); } }, progressLabel(entry.bm, book))) : null].filter(Boolean));
     highlightToc();
   }
   function highlightToc() {
@@ -339,8 +487,9 @@ export async function openReader(root, opts) {
     try {
       await store.setLike(opts.studentId, opts.studentName, book, song, on);
       myLikes = on ? [...myLikes, { bookId: book.id, song }] : myLikes.filter((l) => l.song !== song);
+      if (on) toast(`좋아요를 눌렀어요 · ${song} · 목차의 좋아요 탭에서 모아 볼 수 있어요`, 'good');
       paintLike(); buildToc();
-      toast(on ? `좋아요를 눌렀어요 · ${song}` : `좋아요를 취소했어요 · ${song}`, on ? 'good' : '');
+      if (!on) toast(`좋아요를 취소했어요 · ${song}`);
     } catch { toast('저장하지 못했어요. 인터넷 연결을 확인해 주세요.', 'bad'); }
   }
   if (likeBtn) likeBtn.onclick = () => pickSong('어느 곡이 좋았나요?', visible(page), (_, song) => toggleLike(song));

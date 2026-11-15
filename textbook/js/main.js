@@ -1,7 +1,7 @@
 // 레몬트리 전자 교재: 화면 전환과 각 화면 (로그인, 학생 홈, 학원 태블릿, 관리자)
 
 import { config } from './config.js';
-import { h, $, toast, sheet, confirmBox, spinner, busy, icon } from './ui.js';
+import { h, $, toast, sheet, confirmBox, spinner, busy, icon, toggleSwitch } from './ui.js';
 import { openReader } from './reader.js';
 import { driveMeta, loadPdf, clearPdfCache } from './pdfsource.js';
 import {
@@ -226,8 +226,12 @@ async function viewRead({ bookId, sid, role }) {
     return;
   }
   const back = role === 'admin' ? `#/admin/book/${bookId}` : role === 'kiosk' ? `#/k/${sid}` : '#/';
+  const readBase = role === 'kiosk' ? `#/k/${sid}/read/` : '#/read/';
   reader = await openReader(app, {
     store, book, role, entry, likes,
+    visibleIds: st?.visible || [],
+    startSong: hashQuery().get('song') || null,
+    onOpenSong: (bid, song) => nav(`${readBase}${bid}?song=${encodeURIComponent(song)}`),
     studentId: sid, studentName: st?.name,
     mode: role === 'kiosk' ? 'academy' : 'home',
     onExit: (viaButton) => { reader = null; if (viaButton) nav(back); },
@@ -325,7 +329,7 @@ function progressEditor(cats, books, tracks, prog) {
         opt('', '카테고리 고르기', r.cat), cats.filter((c) => !used.has(c.id)).map((c) => opt(c.id, c.name, r.cat)));
       const inCat = books.filter((b) => b.categoryId === r.cat).sort(byOrder);
       const bookSel = h('select', { class: 'input', disabled: !r.cat, onchange: (e) => { r.book = e.target.value; r.song = ''; paint(); } },
-        opt('', '지금 교재', r.book), inCat.map((b) => opt(b.id, b.title, r.book)));
+        opt('', '교재 고르기', r.book), inCat.map((b) => opt(b.id, b.title, r.book)));
       const book = books.find((b) => b.id === r.book);
       const toc = book ? sortToc(book.toc) : [];
       const songSel = h('select', { class: 'input', disabled: !toc.length, onchange: (e) => { r.song = e.target.value; r.songPage = 1; paint(); } },
@@ -415,7 +419,7 @@ async function adminStudent(id) {
     h('a', { class: 'back-link', href: '#/admin/students' }, icon('back'), '학생 목록'),
     h('section', { class: 'card' },
       h('div', { class: 'row between' }, h('h2', null, st.name),
-        h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: st.active, onchange: async (e) => { await store.updateStudent(id, { active: e.target.checked }); toast(e.target.checked ? '사용으로 바꿨어요.' : '사용 중지했어요. 이 학생은 로그인할 수 없어요.'); } }), h('span', null, '사용'))),
+        toggleSwitch({ checked: st.active, label: '계정', onText: '사용', offText: '사용 중지', onChange: async (on) => { await store.updateStudent(id, { active: on }); toast(on ? '사용으로 바꿨어요.' : '사용 중지했어요. 이 학생은 로그인할 수 없어요.'); } })),
       h('div', { class: 'row' }, h('span', { class: 'muted' }, '생일(로그인 번호)'), birthInput,
         h('button', { class: 'btn small', onclick: async (e) => {
           const b = normBirth(birthInput.value);
@@ -594,9 +598,9 @@ async function adminBook(id) {
   };
   const renderWarn = () => {
     pagesNote.textContent = n ? `지금 교재 파일은 ${n}쪽입니다.` : '쪽수를 확인하는 중…';
-    warn.replaceChildren(book.toc?.length && n && book.tocPages !== n
+    warn.replaceChildren(...[book.toc?.length && n && book.tocPages !== n
       ? h('div', { class: 'notice warn' }, `교재 쪽수가 목차를 저장했을 때(${book.tocPages}쪽)와 달라졌습니다(지금 ${n}쪽). 쪽 번호를 확인한 뒤 '목차 저장'을 눌러 주세요. 저장하기 전까지 학생들에게는 진도 위치가 '확인 필요'로 표시됩니다.`)
-      : null);
+      : null].filter(Boolean));
   };
   renderToc(); renderWarn();
 
@@ -611,9 +615,8 @@ async function adminBook(id) {
     renderToc(); renderWarn(); busy(btn, false); toast('목차를 저장했어요.', 'good');
   };
 
-  const toggle = (key, label, help) => h('label', { class: 'switch' },
-    h('input', { type: 'checkbox', checked: !!book[key], onchange: async (e) => { await store.updateBook(id, { [key]: e.target.checked }); book[key] = e.target.checked; toast('저장했어요.', 'good'); } }),
-    h('span', null, label), help ? h('small', { class: 'muted' }, help) : null);
+  const toggle = (key, label, help, onText, offText) => toggleSwitch({ checked: !!book[key], label, help, onText, offText,
+    onChange: async (on) => { await store.updateBook(id, { [key]: on }); book[key] = on; toast(`저장했어요 · ${label} · ${on ? onText : offText}`, 'good'); } });
 
   const fileIn = h('input', { class: 'input', placeholder: '새 드라이브 링크 (파일을 바꿀 때만)' });
   adminShell('books',
@@ -625,8 +628,9 @@ async function adminBook(id) {
         h('button', { class: 'btn primary', onclick: () => nav(`#/read/${id}`) }, '교재 열어 보기'),
         book.driveId ? h('a', { class: 'btn ghost', href: `https://drive.google.com/file/d/${book.driveId}/view`, target: '_blank', rel: 'noopener' }, '드라이브에서 보기') : null),
       pagesNote,
-      toggle('coverSingle', '두 쪽 보기에서 1쪽(표지)은 혼자 보이기', '책처럼 짝수 쪽이 왼쪽에 옵니다'),
-      toggle('downloadable', '학생이 내려받을 수 있게 하기')),
+      h('div', { class: 'tgl-list' },
+        toggle('coverSingle', '두 쪽 보기에서 1쪽(표지) 혼자 보이기', '책처럼 짝수 쪽이 왼쪽에 옵니다', '켜짐', '꺼짐'),
+        toggle('downloadable', '학생 다운로드', '켜면 학생 교재 화면에 내려받기 버튼이 생겨요', '허용', '허용 안 함'))),
     h('section', { class: 'card' }, h('h3', null, '목차 (곡 목록)'),
       h('p', { class: 'muted small' }, '곡마다 시작 쪽을 적어 주세요. 학생 진도와 좋아요는 이 곡 단위로 저장됩니다. 예를 들어 7쪽에서 시작해 10쪽까지 이어지는 곡의 9쪽을 저장하면 "곡 이름 · 3/4쪽"으로 기록돼요. 교재를 연 상태에서 \'목차에 추가\' 버튼으로 지금 쪽을 바로 넣을 수도 있어요.'),
       warn, tocBox,

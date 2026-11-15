@@ -76,6 +76,8 @@ const ICONS = {
   page1: '<rect x="6" y="3" width="12" height="18" rx="2"/>',
   page2: '<rect x="2" y="4" width="9" height="16" rx="1.5"/><rect x="13" y="4" width="9" height="16" rx="1.5"/>',
   expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  zoomIn: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>',
+  zoomOut: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>',
   download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
   heart: '<path d="M12 20s-7-4.4-9.2-8.6C1.3 8.3 3.1 5 6.4 5c2.1 0 3.4 1.2 4.1 2.3h3c.7-1.1 2-2.3 4.1-2.3 3.3 0 5.1 3.3 3.6 6.4C19 15.6 12 20 12 20z" transform="translate(0 -.5)"/>',
   bookmark: '<path d="M6 3h12v18l-6-4.5L6 21z"/>',
@@ -93,4 +95,24 @@ export function icon(name, cls = '') {
   s.setAttribute('class', 'ic ' + cls);
   s.innerHTML = ICONS[name] || '';
   return s;
+}
+
+// 켜짐·꺼짐이 한눈에 보이는 스위치. onChange가 실패하면 원래대로 돌아간다.
+export function toggleSwitch({ checked = false, label, help, onText = '켜짐', offText = '꺼짐', onChange }) {
+  let on = !!checked, saving = false;
+  const state = h('span', { class: 'tgl-state' });
+  const btn = h('button', { class: 'tgl', type: 'button', role: 'switch' }, h('span', { class: 'tgl-thumb' }));
+  const paint = () => { btn.setAttribute('aria-checked', String(on)); btn.classList.toggle('on', on); state.textContent = on ? onText : offText; state.classList.toggle('on', on); };
+  paint();
+  btn.addEventListener('click', async () => {
+    if (saving) return;
+    const prev = on; on = !on; paint();
+    saving = true; btn.classList.add('saving');
+    try { await onChange?.(on); }
+    catch (e) { on = prev; paint(); toast('저장하지 못했어요. 인터넷 연결을 확인해 주세요.', 'bad'); }
+    finally { saving = false; btn.classList.remove('saving'); }
+  });
+  return h('div', { class: 'tgl-row' },
+    h('div', { class: 'tgl-text' }, h('span', { class: 'tgl-label' }, label), help ? h('small', { class: 'muted' }, help) : null),
+    state, btn);
 }
