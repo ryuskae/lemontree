@@ -1,6 +1,6 @@
 // 레몬트리 전자 교재: 화면 전환과 각 화면 (로그인, 학생 홈, 학원 태블릿, 관리자)
 
-import { config } from './config.js';
+import { config, APP_VERSION } from './config.js';
 import { h, $, toast, sheet, confirmBox, spinner, busy, icon, toggleSwitch } from './ui.js';
 import { openReader } from './reader.js';
 import { driveMeta, loadPdf, clearPdfCache } from './pdfsource.js';
@@ -86,7 +86,8 @@ function viewLogin() {
       h('p', { class: 'muted' }, '선생님 로그인과 학원 태블릿 등록은 이 주소에서만 할 수 있어요.'),
       h('button', { class: 'btn primary big wide', type: 'button', onclick: adminLogin }, '선생님 로그인'),
       h('button', { class: 'btn big wide', type: 'button', onclick: registerTablet }, '이 기기를 학원 태블릿으로 등록'),
-      h('div', { class: 'login-links' }, h('a', { class: 'linkish quiet', href: location.pathname + '#/' }, '학생 로그인 화면으로')))
+      h('div', { class: 'login-links' }, h('a', { class: 'linkish quiet', href: location.pathname + '#/' }, '학생 로그인 화면으로')),
+      h('p', { class: 'hint' }, `앱 버전 · ${APP_VERSION}`))
     : form;
 
   shell(h('main', { class: 'login' },
@@ -868,7 +869,8 @@ async function adminSettings() {
       h('div', { class: 'row wrap' },
         h('button', { class: 'btn ghost', onclick: async () => { await clearPdfCache(); toast('저장해 둔 교재 파일을 지웠어요. 다음에 열 때 새로 내려받습니다.'); } }, '저장된 교재 파일 지우기'),
         store.demo ? h('button', { class: 'btn ghost', onclick: async () => { if (await confirmBox('체험용 데이터를 처음 상태로 되돌릴까요?')) { await store.resetDemo(); nav('#/'); } } }, '체험 데이터 초기화') : null,
-        h('button', { class: 'btn ghost', onclick: async () => { await store.logout(); nav('#/'); } }, '로그아웃'))));
+        h('button', { class: 'btn ghost', onclick: async () => { await store.logout(); nav('#/'); } }, '로그아웃')),
+      h('p', { class: 'muted small' }, `앱 버전 · ${APP_VERSION}`)));
 }
 
 // 학원 태블릿: 오래 꺼져 있다가 켜지면 이름 고르는 화면으로 돌아간다
