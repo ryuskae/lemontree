@@ -1,6 +1,6 @@
 // 앱 화면 파일을 기기에 저장해 두어 빠르게 열리고, 인터넷이 잠깐 끊겨도 열리게 한다.
 // 교재 PDF는 여기서 다루지 않는다 (js/pdfsource.js가 따로 저장한다).
-const VERSION = 'lt-app-v13';
+const VERSION = 'lt-app-v14';
 const SHELL = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/main.js', 'js/core.js', 'js/ui.js', 'js/reader.js', 'js/pdfsource.js', 'js/config.js',

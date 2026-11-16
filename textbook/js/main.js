@@ -60,7 +60,8 @@ function shell(...kids) { app.replaceChildren(h('div', { class: 'page' }, demoBa
 // ---------------- 로그인 ----------------
 function viewLogin() {
   const name = h('input', { class: 'input big', placeholder: '예: 김민준', autocomplete: 'off', autocapitalize: 'off', enterkeyhint: 'next' });
-  const birth = h('input', { class: 'input big', placeholder: '예: 0315', inputmode: 'numeric', maxlength: 4, autocomplete: 'off', enterkeyhint: 'go' });
+  // '03/15'처럼 빗금을 넣어도 숫자만 남겨 0315로 읽는다
+  const birth = h('input', { class: 'input big', placeholder: '예: 0315', inputmode: 'numeric', maxlength: 5, autocomplete: 'off', enterkeyhint: 'go' });
   const msg = h('p', { class: 'form-msg' });
   const go = h('button', { class: 'btn primary big wide', type: 'submit' }, '들어가기');
   name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); birth.focus(); } });
@@ -75,7 +76,8 @@ function viewLogin() {
   } },
   h('h2', null, '내 교재 열기'),
   h('label', { class: 'field' }, h('span', null, '이름'), name),
-  h('label', { class: 'field' }, h('span', null, '생일 4자리'), birth),
+  h('label', { class: 'field' }, h('span', null, '생일 4자리 (mm/dd)'), birth,
+    h('small', { class: 'field-hint' }, '월 두 자리와 날짜 두 자리를 이어서 써요 · 3월 15일 → 0315, 11월 2일 → 1102')),
   msg, go,
   store.demo ? h('p', { class: 'hint' }, '체험: "민준" · 0315 또는 "서연" · 1102') : null);
 

@@ -439,3 +439,4 @@ canvas.r-detail { position: absolute; display: block; pointer-events: none; }
 .load-bar.indeterminate i { width: 35%; animation: load-slide 1.2s ease-in-out infinite; }
 @keyframes load-slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
 .load-note { max-width: 320px; text-align: center; font-size: 14px; font-weight: 600; color: var(--ink-2); background: var(--yellow-soft); padding: 8px 14px; border-radius: 12px; }
+.field-hint { word-break: keep-all; font-size: 13px; color: var(--muted); font-weight: 500; line-height: 1.5; }
