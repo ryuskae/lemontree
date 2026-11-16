@@ -608,13 +608,71 @@ async function adminBook(id) {
   const pagesNote = h('p', { class: 'muted small' });
   const warn = h('div');
 
+  // 곡의 쪽 수: 다음 곡 시작 쪽까지 (마지막 곡은 교재 끝까지)
+  const spanOf = (e) => {
+    const later = toc.filter((x) => x !== e && +x.p > +e.p).map((x) => +x.p);
+    const end = later.length ? Math.min(...later) - 1 : (n || +e.p);
+    return Math.max(1, end - +e.p + 1);
+  };
+  const unsaved = () => toast('목차 저장을 눌러야 학생들에게 반영돼요.');
+
+  // 이 곡 앞에 새 곡을 넣고, 이 곡부터 뒤의 곡들을 새 곡 쪽 수만큼 뒤로 민다
+  const insertBefore = (e) => sheet((body, close) => {
+    const P = +e.p;
+    const name = h('input', { class: 'input', placeholder: '새 곡 이름' });
+    const count = h('input', { class: 'input narrow', type: 'number', min: 1, value: 1, inputmode: 'numeric', 'aria-label': '새 곡의 쪽 수' });
+    const msg = h('p', { class: 'muted small' });
+    const paintMsg = () => { msg.textContent = `새 곡은 ${P}쪽부터 시작하고, "${e.t || '이 곡'}"부터 뒤의 곡들은 모두 ${Math.max(1, +count.value || 1)}쪽씩 뒤로 밀려요.`; };
+    count.addEventListener('input', paintMsg); paintMsg();
+    body.append(
+      h('label', { class: 'field' }, h('span', null, '곡 이름'), name),
+      h('label', { class: 'field inline' }, h('span', null, '쪽 수'), count),
+      msg,
+      h('div', { class: 'row end' }, h('button', { class: 'btn primary', onclick: () => {
+        const t = name.value.trim(); if (!t) return name.focus();
+        const k = Math.max(1, Math.floor(+count.value || 1));
+        toc.forEach((x) => { if (+x.p >= P) x.p = +x.p + k; });
+        toc.push({ t, p: P });
+        toc = sortToc(toc).map((x) => ({ ...x }));
+        close(); renderToc(); unsaved();
+      } }, '넣기')));
+    setTimeout(() => name.focus(), 50);
+  }, { title: '이 곡 앞에 곡 넣기' });
+
+  // 곡을 빼면서 뒤의 곡들을 그 곡 쪽 수만큼 당길지 묻는다
+  const removeSong = async (e) => {
+    const span = spanOf(e);
+    const hasLater = toc.some((x) => x !== e && +x.p > +e.p);
+    let pull = false;
+    if (hasLater) {
+      const ans = await sheet((body, close) => {
+        body.append(h('p', { class: 'sheet-msg' }, `"${e.t || '이 곡'}"(${span}쪽)을 목차에서 뺍니다. 교재에서도 이 곡을 지웠다면 뒤의 곡들을 ${span}쪽씩 앞으로 당기세요.`),
+          h('div', { class: 'row end wrap' },
+            h('button', { class: 'btn ghost', onclick: () => close('keep') }, '쪽 번호는 그대로'),
+            h('button', { class: 'btn primary', onclick: () => close('pull') }, `${span}쪽씩 당기기`)));
+      }, { title: '곡 빼기' });
+      if (!ans) return;
+      pull = ans === 'pull';
+    }
+    const P = +e.p;
+    toc = toc.filter((x) => x !== e);
+    if (pull) toc.forEach((x) => { if (+x.p > P) x.p = +x.p - span; });
+    renderToc(); unsaved();
+  };
+
   const renderToc = () => {
     tocBox.replaceChildren(
-      ...toc.map((e, i) => h('div', { class: 'toc-row' },
+      ...toc.map((e) => h('div', { class: 'toc-row' },
+        h('button', { class: 'icon-btn insert', title: '이 곡 앞에 곡 넣기', 'aria-label': '이 곡 앞에 곡 넣기', onclick: () => insertBefore(e) }, icon('plus')),
         h('input', { class: 'input', value: e.t, placeholder: '곡 이름', oninput: (ev) => { e.t = ev.target.value; } }),
-        h('input', { class: 'input narrow', type: 'number', min: 1, value: e.p, 'aria-label': '시작 쪽', oninput: (ev) => { e.p = +ev.target.value; } }),
-        h('button', { class: 'icon-btn', 'aria-label': '삭제', onclick: () => { toc.splice(i, 1); renderToc(); } }, icon('close')))),
-      h('button', { class: 'btn ghost small', onclick: () => { toc.push({ t: '', p: (toc[toc.length - 1]?.p || 0) + 1 }); renderToc(); tocBox.querySelector('.toc-row:last-of-type input')?.focus(); } }, icon('plus'), '곡 추가'));
+        h('input', { class: 'input narrow', type: 'number', min: 1, value: e.p, 'aria-label': '시작 쪽', oninput: (ev) => { e.p = +ev.target.value; paintSpans(); } }),
+        h('span', { class: 'toc-span muted small', 'data-span': '' }),
+        h('button', { class: 'icon-btn', 'aria-label': '삭제', onclick: () => removeSong(e) }, icon('close')))),
+      h('button', { class: 'btn ghost small', onclick: () => { toc.push({ t: '', p: Math.min(n || 9999, (toc.length ? Math.max(...toc.map((x) => +x.p)) : 0) + 1) }); renderToc(); tocBox.querySelector('.toc-row:last-of-type input:not([type=number])')?.focus(); } }, icon('plus'), '맨 뒤에 곡 추가'));
+    paintSpans();
+  };
+  const paintSpans = () => {
+    tocBox.querySelectorAll('.toc-row').forEach((row, i) => { const e = toc[i]; row.querySelector('[data-span]').textContent = e && e.p ? `${spanOf(e)}쪽` : ''; });
   };
   const renderWarn = () => {
     pagesNote.textContent = n ? `지금 교재 파일은 ${n}쪽입니다.` : '쪽수를 확인하는 중…';
@@ -626,7 +684,7 @@ async function adminBook(id) {
 
   const saveToc = async (btn) => {
     const clean = sortToc(toc.map((e) => ({ t: (e.t || '').trim(), p: +e.p })));
-    if (n && clean.some((e) => e.p > n)) return toast(`쪽 번호는 ${n}쪽 이하여야 해요.`, 'bad');
+    if (n && clean.some((e) => e.p > n)) return toast(`쪽 번호는 ${n}쪽 이하여야 해요. 굿노트 백업이 아직 드라이브에 올라가지 않았다면 잠시 뒤 이 화면을 다시 열어 주세요.`, 'bad');
     const titles = clean.map((e) => e.t);
     if (new Set(titles).size !== titles.length) return toast('같은 이름의 곡이 있어요. 진도를 찾을 때 헷갈리므로 이름을 다르게 해 주세요.', 'bad');
     busy(btn, true);
@@ -652,7 +710,7 @@ async function adminBook(id) {
         toggle('coverSingle', '두 쪽 보기에서 1쪽(표지) 혼자 보이기', '책처럼 짝수 쪽이 왼쪽에 옵니다', '켜짐', '꺼짐'),
         toggle('downloadable', '학생 다운로드', '켜면 학생 교재 화면에 내려받기 버튼이 생겨요', '허용', '허용 안 함'))),
     h('section', { class: 'card' }, h('h3', null, '목차 (곡 목록)'),
-      h('p', { class: 'muted small' }, '곡마다 시작 쪽을 적어 주세요. 학생 진도와 좋아요는 이 곡 단위로 저장됩니다. 예를 들어 7쪽에서 시작해 10쪽까지 이어지는 곡의 9쪽을 저장하면 "곡 이름 · 3/4쪽"으로 기록돼요. 교재를 연 상태에서 \'목차에 추가\' 버튼으로 지금 쪽을 바로 넣을 수도 있어요.'),
+      h('p', { class: 'muted small' }, '곡마다 시작 쪽을 적어 주세요. 학생 진도와 좋아요는 이 곡 단위로 저장됩니다. 예를 들어 7쪽에서 시작해 10쪽까지 이어지는 곡의 9쪽을 저장하면 "곡 이름 · 3/4쪽"으로 기록돼요. 곡 사이에 새 곡을 넣을 때는 그 자리 바로 뒤 곡의 왼쪽 +를 누르면, 뒤의 곡들이 새 곡 쪽 수만큼 함께 밀려요. 곡을 뺄 때는 ×를 누르면 뒤의 곡들을 당길지 물어봐요.'),
       warn, tocBox,
       h('div', { class: 'row end' }, h('button', { class: 'btn primary', onclick: (e) => saveToc(e.currentTarget) }, '목차 저장'))),
     h('section', { class: 'card' }, h('h3', null, '파일 바꾸기 · 삭제'),
