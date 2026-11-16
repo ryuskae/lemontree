@@ -26,6 +26,8 @@ async function boot() {
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
+const isManageUrl = () => new URLSearchParams(location.search).has('manage');
+const goManage = () => { if (isManageUrl()) nav('#/'); else location.href = location.pathname + '?manage#/'; };
 const nav = (hash) => { if (location.hash === hash) route(); else location.hash = hash; };
 const hashQuery = () => new URLSearchParams(location.hash.split('?')[1] || '');
 
@@ -75,17 +77,23 @@ function viewLogin() {
   h('label', { class: 'field' }, h('span', null, '이름'), name),
   h('label', { class: 'field' }, h('span', null, '생일 4자리'), birth),
   msg, go,
-  store.demo ? h('p', { class: 'hint' }, '체험: "민준" · 0315 또는 "서연" · 1102') : null,
-  h('div', { class: 'login-links' },
-    h('button', { class: 'linkish quiet', type: 'button', onclick: registerTablet }, '학원 태블릿으로 등록'),
-    h('span', { class: 'dot' }, '·'),
-    h('button', { class: 'linkish quiet', type: 'button', onclick: adminLogin }, '선생님 로그인')));
+  store.demo ? h('p', { class: 'hint' }, '체험: "민준" · 0315 또는 "서연" · 1102') : null);
+
+  // 관리 주소(?manage)로 열었을 때만 선생님 로그인과 학원 태블릿 등록이 보인다
+  const panel = isManageUrl()
+    ? h('div', { class: 'login-form' },
+      h('h2', null, '관리'),
+      h('p', { class: 'muted' }, '선생님 로그인과 학원 태블릿 등록은 이 주소에서만 할 수 있어요.'),
+      h('button', { class: 'btn primary big wide', type: 'button', onclick: adminLogin }, '선생님 로그인'),
+      h('button', { class: 'btn big wide', type: 'button', onclick: registerTablet }, '이 기기를 학원 태블릿으로 등록'),
+      h('div', { class: 'login-links' }, h('a', { class: 'linkish quiet', href: location.pathname + '#/' }, '학생 로그인 화면으로')))
+    : form;
 
   shell(h('main', { class: 'login' },
     h('section', { class: 'login-hero' },
       h('div', { class: 'hero-logo' }, logo()),
       h('div', { class: 'hero-text' }, h('div', { class: 'eyebrow' }, ACADEMY), h('h1', null, '기타 교재'))),
-    h('section', { class: 'login-panel' }, form)));
+    h('section', { class: 'login-panel' }, panel)));
 }
 
 // 학원 태블릿으로 등록했던 기기는 선생님 로그인 전에 학원 태블릿 비밀번호를 한 번 더 묻는다
@@ -154,7 +162,7 @@ async function viewKiosk() {
         : h('p', { class: 'center muted' }, '등록된 학생이 없어요. 관리자 페이지에서 학생을 추가해 주세요.'),
       h('div', { class: 'kiosk-foot' }, h('button', { class: 'linkish quiet', onclick: async () => {
         const ok = await askKioskPassword({ title: '학원 태블릿 등록 해제', message: '등록을 해제하려면 학원 태블릿 비밀번호를 입력해 주세요.', okText: '해제', danger: true });
-        if (ok) { await store.logout(); setKioskDevice(false); nav('#/'); }
+        if (ok) { await store.logout(); setKioskDevice(false); goManage(); }
       } }, '학원 태블릿 등록 해제 (선생님용)'))));
 }
 
@@ -175,26 +183,38 @@ async function viewStudentHome(sid, role) {
   const tracks = st.tracks || {};
   const currentIds = new Set(Object.values(tracks));
 
-  const card = (b) => {
+  // 지금 교재: 큰 카드
+  const currentCard = (b) => {
     const p = prog[b.id] || {};
-    const cur = currentIds.has(b.id);
     const total = p.bm?.numPages || b.numPages || 0;
     const pct = p.bm && total ? Math.min(100, Math.round((p.bm.page / total) * 100)) : 0;
-    return h('button', { class: 'book-card' + (cur ? ' current' : ''), onclick: () => nav(readHash(b.id)) },
-      h('div', { class: 'book-top' },
-        h('span', { class: 'tag' + (cur ? ' now' : '') }, cur ? '지금 배우는 교재' : '배운 교재'),
-        icon('chevron', 'book-chev')),
+    return h('button', { class: 'book-card current', onclick: () => nav(readHash(b.id)) },
+      h('div', { class: 'book-top' }, h('span', { class: 'tag now' }, '지금 배우는 교재'), icon('chevron', 'book-chev')),
       h('div', { class: 'book-title' }, b.title),
       h('div', { class: 'book-mark' }, p.bm ? progressLabel(p.bm, b) : '아직 저장한 진도가 없어요'),
       total ? h('div', { class: 'bar' }, h('i', { style: { width: pct + '%' } })) : null,
       p.lastAt ? h('div', { class: 'muted small' }, `마지막으로 본 날 · ${fmtDate(p.lastAt)}`) : null);
   };
+  // 배운 교재: 지금 교재 아래에 최근 것부터 쌓인다 (맨 아래가 1권)
+  const pastRow = (b) => {
+    const p = prog[b.id] || {};
+    return h('button', { class: 'past-book', onclick: () => nav(readHash(b.id)) },
+      h('span', { class: 'past-main' }, h('span', { class: 'past-title' }, b.title),
+        h('span', { class: 'muted small' }, p.bm ? progressLabel(p.bm, b) : '저장한 진도 없음')),
+      icon('chevron', 'book-chev'));
+  };
 
-  const sections = cats.filter((c) => tracks[c.id]).map((c) => {
-    const list = books.filter((b) => b.categoryId === c.id).sort(byOrder).reverse(); // 지금 교재를 맨 앞에
+  const columns = cats.filter((c) => tracks[c.id]).map((c) => {
+    const list = books.filter((b) => b.categoryId === c.id).sort(byOrder).reverse();
     if (!list.length) return null;
-    return h('section', { class: 'shelf' }, h('h3', { class: 'shelf-title' }, c.name), h('div', { class: 'book-grid' }, list.map(card)));
+    const cur = list.find((b) => currentIds.has(b.id));
+    const past = list.filter((b) => b !== cur);
+    return h('section', { class: 'shelf-col' },
+      h('h3', { class: 'shelf-title' }, c.name),
+      cur ? currentCard(cur) : null,
+      past.length ? h('div', { class: 'past-stack' }, h('div', { class: 'past-label' }, '배운 교재'), past.map(pastRow)) : null);
   }).filter(Boolean);
+  const sections = columns.length ? [h('div', { class: 'shelf-cols' }, columns)] : [];
 
   shell(
     topbar(brand(`${st.name}님`),

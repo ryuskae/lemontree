@@ -232,11 +232,12 @@ select.input:disabled { background-color: var(--bg); }
 .reader.full .r-top, .reader.full .r-bottom, .reader.full .r-banner, .reader.full .r-toc { display: none !important; }
 .reader.full .r-spread { gap: 0; }
 .reader.full .r-page { box-shadow: none; border-radius: 0; }
-@media (max-width: 1100px) { .r-tools .tool:not(.primary) .tool-label, .seg .tool-label { display: none; } .r-tools .tool:not(.primary) { padding: 0 11px; } }
+@media (max-width: 1180px) { .r-tools .tool:not(.mark):not(.keep) .tool-label, .seg .tool-label { display: none; } .r-tools .tool:not(.mark):not(.keep):not(.back) { padding: 0 11px; } }
+@media (max-width: 860px) { .r-tools .tool.keep .tool-label { display: none; } .r-tools .tool.keep { padding: 0 11px; } }
 @media (max-width: 640px) {
   .segmented { display: none; }
   .r-sub { display: none; }
-  .tool.primary span { display: none; }
+  .tool.mark span { display: none; }
   .r-tools { gap: 4px; }
 }
 
@@ -400,3 +401,26 @@ select.input:disabled { background-color: var(--bg); }
 .r-fullbar .tool.nav:disabled { opacity: .3; }
 .r-fullbar .zoom-label { background: rgba(255,255,255,.14); color: #fff; }
 .r-fullbar-sep { width: 1px; height: 22px; background: rgba(255,255,255,.25); margin: 0 4px; }
+
+/* ---------- 학생 홈: 카테고리별 단 ---------- */
+.shelf-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px 20px; align-items: start; }
+.shelf-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.shelf-col .shelf-title { margin: 0; }
+.shelf-col .book-card { min-height: 0; }
+.past-stack { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 6px 8px; }
+.past-label { font-size: 12px; font-weight: 800; color: var(--muted); padding: 8px 10px 4px; }
+.past-book { display: flex; align-items: center; gap: 10px; border: 0; background: none; text-align: left; padding: 12px 10px; border-top: 1px solid var(--line); border-radius: 0; }
+.past-label + .past-book { border-top: 0; }
+.past-book:hover { background: var(--bg); border-radius: 12px; }
+.past-main { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.past-title { font-weight: 800; font-size: 16px; letter-spacing: -0.02em; }
+.past-book .book-chev { color: var(--muted); }
+/* 진도 버튼: 지금 보이는 쪽이 내 진도면 채워진다 */
+.tool.mark { min-width: 112px; justify-content: center; }
+.tool.mark.marked { background: var(--yellow); border-color: var(--yellow); }
+.tool.mark.marked:hover { background: var(--yellow-strong); }
+.tool.mark.marked .ic { fill: var(--ink); }
+.tool.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+.tool.active:hover { background: var(--ink-2); }
+@media (max-width: 640px) { .tool.mark { min-width: 0; padding: 0 11px; } }
+.like-item { display: flex; flex-direction: column; gap: 2px; text-align: left; }

@@ -47,7 +47,10 @@ export async function openReader(root, opts) {
   const segment = h('div', { class: 'segmented' }, oneBtn, twoBtn);
   const fullBtn = tool('expand', '전체보기');
   const likeBtn = tracking ? tool('heart', '좋아요', { class: 'tool like' }) : null;
-  const markBtn = tracking ? h('button', { class: 'tool primary', title: '여기까지 연습했어요' }, icon('bookmark'), h('span', null, '진도 저장')) : null;
+  const markLabel = h('span', null, '진도 저장');
+  const markBtn = tracking ? h('button', { class: 'tool mark', title: '여기까지 연습했어요' }, icon('bookmark'), markLabel) : null;
+  const tocBtn = tool('list', '목차', { class: 'tool keep', onclick: () => openPanel('toc') });
+  const likesBtn = tracking ? tool('heartList', '좋아요 목록', { class: 'tool keep', onclick: () => openPanel('likes') }) : null;
   const dlBtn = book.downloadable ? tool('download', '내려받기') : null;
   const addTocBtn = role === 'admin' ? tool('plus', '목차에 추가') : null;
   const zoomOutBtn = h('button', { class: 'tool nav', 'aria-label': '축소' }, icon('zoomOut'));
@@ -65,7 +68,7 @@ export async function openReader(root, opts) {
       h('button', { class: 'tool back', 'aria-label': '목록으로', onclick: () => exit(true) }, icon('back')),
       h('div', { class: 'r-title' }, h('div', { class: 'r-name' }, book.title), titleSub),
       h('div', { class: 'r-tools' },
-        tool('list', '목차', { onclick: () => toggleToc() }),
+        tocBtn, likesBtn,
         segment, fullBtn, addTocBtn, dlBtn, likeBtn, markBtn)),
     banner,
     h('div', { class: 'r-main' }, stage, tocPanel, fullBar),
@@ -343,6 +346,7 @@ export async function openReader(root, opts) {
     pageLabel.textContent = pages.length === 2 ? `${pages[0]}–${pages[1]} / ${n}` : `${pages[0]} / ${n}`;
     highlightToc();
     paintLike();
+    paintMark();
     track(pages);
     let canvases;
     try { canvases = await Promise.all(pages.map((p) => renderPage(p, bw, bh))); } catch { return; }
@@ -422,7 +426,6 @@ export async function openReader(root, opts) {
   let tocTab = 'toc';
   function buildToc() {
     const toc = sortToc(book.toc);
-    const tabBtn = (key, label) => h('button', { class: 'seg' + (tocTab === key ? ' on' : ''), onclick: () => { tocTab = key; buildToc(); } }, label);
     const mine = myLikes.slice().sort((a, b) => (songPage(a.song) || 1e9) - (songPage(b.song) || 1e9));
     const others = (opts.likes || []).filter((l) => l.bookId !== book.id && (!opts.visibleIds || opts.visibleIds.includes(l.bookId)));
     const closeIfNarrow = () => { if (window.innerWidth < 900) toggleToc(false); };
@@ -435,20 +438,21 @@ export async function openReader(root, opts) {
             h('span', null, e.t, likedSongs().has(e.t) ? h('span', { class: 'heart-mini' }, ' ♥') : null), h('span', { class: 'muted' }, `${e.p}`)))))
         : h('p', { class: 'muted pad' }, '목차가 없는 교재입니다. 아래 막대로 쪽을 옮겨 주세요.');
     } else {
-      const row = (song, sub, onclick) => h('li', null, h('button', { onclick, disabled: !onclick },
-        h('span', null, h('span', { class: 'heart-mini' }, '♥ '), song), h('span', { class: 'muted' }, sub)));
+      const row = (song, right, below, onclick) => h('li', null, h('button', { onclick, disabled: !onclick },
+        h('span', { class: 'like-item' }, h('span', null, h('span', { class: 'heart-mini' }, '♥ '), song), below ? h('span', { class: 'muted small' }, below) : null),
+        h('span', { class: 'muted' }, right)));
       body = h('div', null,
         mine.length || others.length ? null : h('p', { class: 'muted pad' }, '아직 좋아요를 누른 곡이 없어요. 마음에 드는 곡에서 좋아요를 눌러 보세요.'),
         mine.length ? h('ol', { class: 'r-toc-list' }, mine.map((l) => {
           const p = songPage(l.song);
-          return row(l.song, p ? `${p}` : '목차에 없음', p ? () => { go(p); closeIfNarrow(); } : null);
+          return row(l.song, p ? `${p}` : '목차에 없음', null, p ? () => { go(p); closeIfNarrow(); } : null);
         })) : null,
         others.length ? h('div', { class: 'r-toc-sub' }, '다른 교재') : null,
-        others.length ? h('ol', { class: 'r-toc-list' }, others.map((l) => row(l.song, l.bookTitle || '', opts.onOpenSong ? () => opts.onOpenSong(l.bookId, l.song) : null))) : null);
+        others.length ? h('ol', { class: 'r-toc-list' }, others.map((l) => row(l.song, '', l.bookTitle || '', opts.onOpenSong ? () => opts.onOpenSong(l.bookId, l.song) : null))) : null);
     }
     tocPanel.replaceChildren(...[
       h('div', { class: 'r-toc-head' },
-        tracking ? h('div', { class: 'segmented' }, tabBtn('toc', '목차'), tabBtn('likes', `좋아요 ${myLikes.length + others.length}`)) : h('strong', null, '목차'),
+        h('strong', null, tocTab === 'toc' ? '목차' : `좋아요 목록 · ${myLikes.length + others.length}곡`),
         h('button', { class: 'icon-btn', 'aria-label': '닫기', onclick: () => toggleToc(false) }, icon('close'))),
       body,
       entry.bm && tocTab === 'toc' ? h('div', { class: 'r-toc-mark' }, h('div', { class: 'muted small' }, '내 진도'),
@@ -462,6 +466,14 @@ export async function openReader(root, opts) {
   function toggleToc(force) {
     const open = force ?? tocPanel.classList.contains('hidden');
     tocPanel.classList.toggle('hidden', !open);
+    tocBtn.classList.toggle('active', open && tocTab === 'toc');
+    likesBtn?.classList.toggle('active', open && tocTab === 'likes');
+  }
+  // 같은 버튼을 다시 누르면 닫고, 다른 버튼을 누르면 그 목록으로 바꾼다
+  function openPanel(tab) {
+    const isOpen = !tocPanel.classList.contains('hidden');
+    if (isOpen && tocTab === tab) return toggleToc(false);
+    tocTab = tab; buildToc(); toggleToc(true);
   }
 
   // ---------- 곡 고르기 (두 쪽에 곡이 둘이면 물어본다) ----------
@@ -477,16 +489,35 @@ export async function openReader(root, opts) {
   }
 
   // ---------- 진도 저장 ----------
+  // 지금 보이는 쪽에 내 진도가 있으면 버튼이 노랗게 채워진다
+  function markedPage() {
+    const r = entry.bm ? resolveBookmark(entry.bm, book, n) : null;
+    return r && r.status === 'ok' ? r.page : null;
+  }
+  function paintMark() {
+    if (!markBtn) return;
+    const mp = markedPage();
+    const on = !!mp && visible(page).includes(mp);
+    markBtn.classList.toggle('marked', on);
+    markLabel.textContent = on ? '내 진도' : '진도 저장';
+    markBtn.title = on ? '지금 보이는 쪽이 내 진도예요' : '여기까지 연습했어요';
+  }
   async function saveMark(p) {
     const bm = makeBookmark(book, p, n);
     entry = { ...entry, bm };
-    updateSub(); buildToc();
+    updateSub(); buildToc(); paintMark();
     try {
       await store.saveBookmark(opts.studentId, book.id, bm);
       toast(`진도를 저장했어요 · ${progressLabel(bm, book)}`, 'good');
     } catch { toast('진도를 저장하지 못했어요. 인터넷 연결을 확인해 주세요.', 'bad'); }
   }
-  if (markBtn) markBtn.onclick = () => pickSong('어느 곡까지 연습했나요?', visible(page), (p, song) => {
+  if (markBtn) markBtn.onclick = () => {
+    const vis = visible(page), mp = markedPage();
+    // 이미 이 쪽이 진도이고 화면에 곡이 하나뿐이면 다시 저장할 필요가 없다
+    if (mp && vis.includes(mp) && new Set(vis.map(songOf)).size === 1) return toast(`이 쪽이 지금 내 진도예요 · ${progressLabel(entry.bm, book)}`);
+    markPick(vis);
+  };
+  const markPick = (vis) => pickSong('어느 곡까지 연습했나요?', vis, (p, song) => {
     // 두 쪽이 같은 곡이고 기존 진도가 화면 안에 있으면 그 쪽을 지킨다
     const cur = entry.bm?.page;
     if (cur && cur !== p && visible(page).includes(cur) && songOf(cur) === song) p = cur;
