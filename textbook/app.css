@@ -431,3 +431,5 @@ canvas.r-detail { position: absolute; display: block; pointer-events: none; }
 .toc-row .icon-btn.insert { color: var(--ink); background: var(--yellow-soft); }
 .toc-row .icon-btn.insert:hover { background: var(--yellow); }
 .toc-span { width: 40px; flex: none; text-align: right; }
+.input.dup { border-color: #e5484d; background: #fff5f5; box-shadow: 0 0 0 3px rgba(229,72,77,.15); }
+.notice.bad { background: #fff0f0; color: #a3202e; font-weight: 600; }

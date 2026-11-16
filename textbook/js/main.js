@@ -630,6 +630,7 @@ async function adminBook(id) {
       msg,
       h('div', { class: 'row end' }, h('button', { class: 'btn primary', onclick: () => {
         const t = name.value.trim(); if (!t) return name.focus();
+        if (toc.some((x) => (x.t || '').trim() === t)) { msg.textContent = `이미 목차에 있는 이름이에요 · ${t}`; return name.select(); }
         const k = Math.max(1, Math.floor(+count.value || 1));
         toc.forEach((x) => { if (+x.p >= P) x.p = +x.p + k; });
         toc.push({ t, p: P });
@@ -664,12 +665,29 @@ async function adminBook(id) {
     tocBox.replaceChildren(
       ...toc.map((e) => h('div', { class: 'toc-row' },
         h('button', { class: 'icon-btn insert', title: '이 곡 앞에 곡 넣기', 'aria-label': '이 곡 앞에 곡 넣기', onclick: () => insertBefore(e) }, icon('plus')),
-        h('input', { class: 'input', value: e.t, placeholder: '곡 이름', oninput: (ev) => { e.t = ev.target.value; } }),
+        h('input', { class: 'input', value: e.t, placeholder: '곡 이름', oninput: (ev) => { e.t = ev.target.value; paintDupes(); } }),
         h('input', { class: 'input narrow', type: 'number', min: 1, value: e.p, 'aria-label': '시작 쪽', oninput: (ev) => { e.p = +ev.target.value; paintSpans(); } }),
         h('span', { class: 'toc-span muted small', 'data-span': '' }),
         h('button', { class: 'icon-btn', 'aria-label': '삭제', onclick: () => removeSong(e) }, icon('close')))),
       h('button', { class: 'btn ghost small', onclick: () => { toc.push({ t: '', p: Math.min(n || 9999, (toc.length ? Math.max(...toc.map((x) => +x.p)) : 0) + 1) }); renderToc(); tocBox.querySelector('.toc-row:last-of-type input:not([type=number])')?.focus(); } }, icon('plus'), '맨 뒤에 곡 추가'));
-    paintSpans();
+    paintSpans(); paintDupes();
+  };
+  // 같은 이름의 곡을 빨갛게 표시하고, 아래에 어느 쪽끼리 겹치는지 알려 준다
+  const dupNote = h('div', { class: 'notice bad hidden' });
+  const findDupes = () => {
+    const groups = new Map();
+    toc.forEach((e) => { const k = (e.t || '').trim(); if (!k) return; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(e); });
+    return [...groups.entries()].filter(([, list]) => list.length > 1);
+  };
+  const paintDupes = () => {
+    const dupes = findDupes();
+    const bad = new Set(dupes.flatMap(([, list]) => list));
+    tocBox.querySelectorAll('.toc-row').forEach((row, i) => row.querySelector('input:not([type=number])').classList.toggle('dup', bad.has(toc[i])));
+    dupNote.classList.toggle('hidden', !dupes.length);
+    dupNote.textContent = dupes.length
+      ? `이름이 같은 곡이 있어요 · ${dupes.map(([t, list]) => `${t} (${list.map((e) => e.p + '쪽').join(', ')})`).join(' / ')}. 한쪽 이름을 바꿔야 저장할 수 있어요.`
+      : '';
+    return dupes;
   };
   const paintSpans = () => {
     tocBox.querySelectorAll('.toc-row').forEach((row, i) => { const e = toc[i]; row.querySelector('[data-span]').textContent = e && e.p ? `${spanOf(e)}쪽` : ''; });
@@ -685,8 +703,12 @@ async function adminBook(id) {
   const saveToc = async (btn) => {
     const clean = sortToc(toc.map((e) => ({ t: (e.t || '').trim(), p: +e.p })));
     if (n && clean.some((e) => e.p > n)) return toast(`쪽 번호는 ${n}쪽 이하여야 해요. 굿노트 백업이 아직 드라이브에 올라가지 않았다면 잠시 뒤 이 화면을 다시 열어 주세요.`, 'bad');
-    const titles = clean.map((e) => e.t);
-    if (new Set(titles).size !== titles.length) return toast('같은 이름의 곡이 있어요. 진도를 찾을 때 헷갈리므로 이름을 다르게 해 주세요.', 'bad');
+    const dupes = paintDupes();
+    if (dupes.length) {
+      tocBox.querySelector('input.dup')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return toast(`이름이 같은 곡이 있어요 · ${dupes.map(([t]) => t).join(', ')}`, 'bad');
+    }
+    if (clean.some((e) => !e.t)) return toast('이름이 비어 있는 곡이 있어요.', 'bad');
     busy(btn, true);
     await store.updateBook(id, { toc: clean, tocPages: n });
     book = { ...book, toc: clean, tocPages: n }; toc = clean.map((e) => ({ ...e }));
@@ -711,7 +733,7 @@ async function adminBook(id) {
         toggle('downloadable', '학생 다운로드', '켜면 학생 교재 화면에 내려받기 버튼이 생겨요', '허용', '허용 안 함'))),
     h('section', { class: 'card' }, h('h3', null, '목차 (곡 목록)'),
       h('p', { class: 'muted small' }, '곡마다 시작 쪽을 적어 주세요. 학생 진도와 좋아요는 이 곡 단위로 저장됩니다. 예를 들어 7쪽에서 시작해 10쪽까지 이어지는 곡의 9쪽을 저장하면 "곡 이름 · 3/4쪽"으로 기록돼요. 곡 사이에 새 곡을 넣을 때는 그 자리 바로 뒤 곡의 왼쪽 +를 누르면, 뒤의 곡들이 새 곡 쪽 수만큼 함께 밀려요. 곡을 뺄 때는 ×를 누르면 뒤의 곡들을 당길지 물어봐요.'),
-      warn, tocBox,
+      warn, tocBox, dupNote,
       h('div', { class: 'row end' }, h('button', { class: 'btn primary', onclick: (e) => saveToc(e.currentTarget) }, '목차 저장'))),
     h('section', { class: 'card' }, h('h3', null, '파일 바꾸기 · 삭제'),
       h('p', { class: 'muted small' }, 'GoodNotes 자동 백업으로 같은 파일이 갱신되는 경우에는 바꿀 필요가 없습니다. 아예 다른 파일로 교체할 때만 쓰세요.'),

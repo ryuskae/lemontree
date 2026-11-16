@@ -618,6 +618,7 @@ export async function openReader(root, opts) {
       body.append(h('p', { class: 'sheet-msg' }, `${p}쪽에서 시작하는 곡(목차 항목)을 추가합니다.`), input,
         h('div', { class: 'row end' }, h('button', { class: 'btn primary', onclick: async () => {
           const t = input.value.trim(); if (!t) return;
+          if ((book.toc || []).some((e) => e.t === t && e.p !== p)) return toast(`이미 목차에 있는 이름이에요 · ${t}`, 'bad');
           const toc = sortToc([...(book.toc || []).filter((e) => e.p !== p), { t, p }]);
           book = { ...book, toc, tocPages: n };
           await store.updateBook(book.id, { toc, tocPages: n });
