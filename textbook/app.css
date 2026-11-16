@@ -424,3 +424,7 @@ select.input:disabled { background-color: var(--bg); }
 .tool.active:hover { background: var(--ink-2); }
 @media (max-width: 640px) { .tool.mark { min-width: 0; padding: 0 11px; } }
 .like-item { display: flex; flex-direction: column; gap: 2px; text-align: left; }
+/* 확대 시 선명한 덧그림 */
+.r-pagebox { position: relative; flex: none; }
+.r-pagebox > canvas.r-page { display: block; }
+canvas.r-detail { position: absolute; display: block; pointer-events: none; }

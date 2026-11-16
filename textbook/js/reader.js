@@ -303,28 +303,81 @@ export async function openReader(root, opts) {
   }, { passive: false });
   let wheelTimer, wheelZoom = 0;
 
-  async function renderPage(p, boxW, boxH) {
-    const key = `${p}@${boxW}x${boxH}`;
-    if (cache.has(key)) return cache.get(key);
+  // 바탕 그림: 화면에 맞춘 크기 × 확대 배율. 확대했을 때는 메모리를 아끼려고 조금 낮은 해상도로 그리고,
+  // 보이는 부분은 아래 '선명한 덧그림'이 원래 해상도로 다시 그린다.
+  const DPR = () => Math.min(window.devicePixelRatio || 1, 3);
+  async function renderPage(p, boxW, boxH, z) {
+    const key = `${p}@${boxW}x${boxH}@${z}`;
+    if (cache.has(key)) { const job = cache.get(key); cache.delete(key); cache.set(key, job); return job; }
     const job = (async () => {
       const pg = await pdf.getPage(p);
       const v1 = pg.getViewport({ scale: 1 });
-      const scale = Math.min(boxW / v1.width, boxH / v1.height);
-      // 태블릿 브라우저의 캔버스 한도(약 1,600만 화소)를 넘지 않도록 선명도를 조절한다
+      const scale = Math.min(boxW / v1.width, boxH / v1.height) * z;
       const cssW = v1.width * scale, cssH = v1.height * scale;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(12e6 / (cssW * cssH)));
-      const vp = pg.getViewport({ scale: scale * dpr });
+      const cap = z > 1 ? 4e6 : 12e6;
+      const ratio = Math.min(DPR(), Math.sqrt(cap / (cssW * cssH)));
+      const vp = pg.getViewport({ scale: scale * ratio });
       const c = h('canvas', { class: 'r-page' });
       c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
-      c.style.width = Math.floor(v1.width * scale) + 'px';
-      c.style.height = Math.floor(v1.height * scale) + 'px';
+      c.style.width = Math.floor(cssW) + 'px';
+      c.style.height = Math.floor(cssH) + 'px';
       await pg.render({ canvasContext: c.getContext('2d', { alpha: false }), viewport: vp }).promise;
+      c._meta = { pg, scale, cssW: Math.floor(cssW), cssH: Math.floor(cssH) };
       return c;
     })();
     cache.set(key, job);
-    if (cache.size > 10) cache.delete(cache.keys().next().value);
+    // 오래된 그림은 지운다 (아이패드는 캔버스 크기를 0으로 해야 메모리를 돌려준다)
+    while (cache.size > 8) {
+      const oldKey = cache.keys().next().value;
+      const old = cache.get(oldKey); cache.delete(oldKey);
+      old.then((c) => { if (!c.isConnected) { c.width = 0; c.height = 0; } }).catch(() => {});
+    }
     return job;
   }
+
+  // 선명한 덧그림: 확대했을 때 화면에 보이는 부분만 기기 해상도 그대로 다시 그린다
+  let detailTasks = [], detailTimer, detailToken = 0;
+  function clearDetail() {
+    detailTasks.forEach((t) => { try { t.cancel(); } catch {} });
+    detailTasks = [];
+    stage.querySelectorAll('canvas.r-detail').forEach((c) => { c.width = 0; c.height = 0; c.remove(); });
+  }
+  function scheduleDetail(delay = 140) {
+    clearTimeout(detailTimer);
+    detailTimer = setTimeout(renderDetail, delay);
+  }
+  async function renderDetail() {
+    const my = ++detailToken;
+    detailTasks.forEach((t) => { try { t.cancel(); } catch {} });
+    detailTasks = [];
+    if (zoom <= 1 || pinch) return;
+    const sr = stage.getBoundingClientRect();
+    const dpr = DPR();
+    const boxes = [...stage.querySelectorAll('.r-pagebox')];
+    await Promise.all(boxes.map(async (box) => {
+      const base = box.querySelector('canvas.r-page');
+      const meta = base?._meta;
+      if (!meta) return;
+      const r = box.getBoundingClientRect();
+      const x0 = Math.max(0, Math.floor(sr.left - r.left)), y0 = Math.max(0, Math.floor(sr.top - r.top));
+      const x1 = Math.min(meta.cssW, Math.ceil(sr.right - r.left)), y1 = Math.min(meta.cssH, Math.ceil(sr.bottom - r.top));
+      if (x1 <= x0 || y1 <= y0) { box.querySelector('canvas.r-detail')?.remove(); return; }
+      const w = x1 - x0, hgt = y1 - y0;
+      const c = document.createElement('canvas');
+      c.className = 'r-detail';
+      c.width = Math.round(w * dpr); c.height = Math.round(hgt * dpr);
+      Object.assign(c.style, { left: x0 + 'px', top: y0 + 'px', width: w + 'px', height: hgt + 'px' });
+      const vp = meta.pg.getViewport({ scale: meta.scale * dpr });
+      const task = meta.pg.render({ canvasContext: c.getContext('2d', { alpha: false }), viewport: vp, transform: [1, 0, 0, 1, -x0 * dpr, -y0 * dpr] });
+      detailTasks.push(task);
+      try { await task.promise; } catch { c.width = 0; c.height = 0; return; }
+      if (my !== detailToken || !box.isConnected) { c.width = 0; c.height = 0; return; }
+      const old = box.querySelector('canvas.r-detail');
+      if (old) { old.width = 0; old.height = 0; old.remove(); }
+      box.append(c);
+    }));
+  }
+  stage.addEventListener('scroll', () => { if (zoom > 1) scheduleDetail(); }, { passive: true });
 
   function boxSize(count) {
     const r = stage.getBoundingClientRect();
@@ -340,7 +393,6 @@ export async function openReader(root, opts) {
     page = pages[0];
     paintSegment();
     const [bw0, bh0] = boxSize(isTwo() ? 2 : 1);
-    const bw = Math.round(bw0 * zoom), bh = Math.round(bh0 * zoom);
     paintZoom();
     slider.value = page;
     pageLabel.textContent = pages.length === 2 ? `${pages[0]}–${pages[1]} / ${n}` : `${pages[0]} / ${n}`;
@@ -349,9 +401,11 @@ export async function openReader(root, opts) {
     paintMark();
     track(pages);
     let canvases;
-    try { canvases = await Promise.all(pages.map((p) => renderPage(p, bw, bh))); } catch { return; }
+    try { canvases = await Promise.all(pages.map((p) => renderPage(p, bw0, bh0, zoom))); } catch { return; }
     if (my !== token) return;
-    const spread = h('div', { class: 'r-spread' + (pages.length === 2 ? ' two' : '') }, canvases);
+    clearDetail();
+    const spread = h('div', { class: 'r-spread' + (pages.length === 2 ? ' two' : '') },
+      canvases.map((c) => h('div', { class: 'r-pagebox', style: { width: c.style.width, height: c.style.height } }, c)));
     stage.classList.toggle('zoomed', zoom > 1);
     stage.replaceChildren(spread);
     shownPage = pages[0];
@@ -363,10 +417,11 @@ export async function openReader(root, opts) {
       } else if (pageChanged) stage.scrollTop = 0;
     }
     pendingFocus = null;
-    // 다음·이전 쪽을 미리 그려 둔다
+    if (zoom > 1) { scheduleDetail(0); return; }
+    // 다음·이전 쪽을 미리 그려 둔다 (확대하지 않았을 때만)
     const ahead = visible(Math.min(n, pages[pages.length - 1] + 1));
     const behind = visible(Math.max(1, pages[0] - 1));
-    setTimeout(() => { if (my === token) [...ahead, ...behind].forEach((p) => renderPage(p, bw, bh).catch(() => {})); }, 120);
+    setTimeout(() => { if (my === token) [...ahead, ...behind].forEach((p) => renderPage(p, bw0, bh0, 1).catch(() => {})); }, 120);
   }
 
   const go = (p) => { page = Math.max(1, Math.min(n, p)); show(); };
