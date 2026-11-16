@@ -40,7 +40,9 @@ async function cachedVersions(cache, id) {
   return keys.filter((r) => r.url.startsWith(KEY_HOST + id + '?'));
 }
 
-async function readWithProgress(res, total, onProgress) {
+// onProgress(비율 또는 null, 받은 바이트, { updating }): updating은 예전 버전이 기기에 있을 때 true
+async function readWithProgress(res, total, onProgress, info = {}) {
+  onProgress?.(total ? 0 : null, 0, info);
   if (!res.body || !onProgress) return res.arrayBuffer();
   const reader = res.body.getReader();
   const chunks = [];
@@ -49,7 +51,7 @@ async function readWithProgress(res, total, onProgress) {
     const { done, value } = await reader.read();
     if (done) break;
     chunks.push(value); got += value.length;
-    onProgress(total ? got / total : null, got);
+    onProgress(total ? got / total : null, got, info);
   }
   const out = new Uint8Array(got);
   let pos = 0;
@@ -81,10 +83,12 @@ export async function loadPdf(book, onProgress) {
     const hit = await cache.match(key);
     if (hit) return { data: await hit.arrayBuffer(), version: meta.modifiedTime, fromCache: true };
   }
+  const updating = cache ? (await cachedVersions(cache, id)).length > 0 : false;
+  onProgress?.(meta.size ? 0 : null, 0, { updating });
   let res;
   try { res = await fetch(mediaUrl(id)); } catch { throw new PdfError('인터넷 연결을 확인해 주세요.'); }
   if (!res.ok) throw driveError(res.status, await res.json().catch(() => ({})));
-  const data = await readWithProgress(res, +meta.size || 0, onProgress);
+  const data = await readWithProgress(res, +meta.size || 0, onProgress, { updating });
   if (cache) {
     for (const old of await cachedVersions(cache, id)) await cache.delete(old);
     await cache.put(key, new Response(data.slice(0), { headers: { 'Content-Type': 'application/pdf' } })).catch(() => {});

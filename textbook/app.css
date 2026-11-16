@@ -433,3 +433,9 @@ canvas.r-detail { position: absolute; display: block; pointer-events: none; }
 .toc-span { width: 40px; flex: none; text-align: right; }
 .input.dup { border-color: #e5484d; background: #fff5f5; box-shadow: 0 0 0 3px rgba(229,72,77,.15); }
 .notice.bad { background: #fff0f0; color: #a3202e; font-weight: 600; }
+/* 교재 내려받기 진행 막대 */
+.load-bar { width: min(320px, 70vw); height: 8px; border-radius: 99px; background: rgba(20,20,20,.1); overflow: hidden; }
+.load-bar i { display: block; height: 100%; width: 0; background: var(--yellow-strong); border-radius: 99px; transition: width .2s; }
+.load-bar.indeterminate i { width: 35%; animation: load-slide 1.2s ease-in-out infinite; }
+@keyframes load-slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+.load-note { max-width: 320px; text-align: center; font-size: 14px; font-weight: 600; color: var(--ink-2); background: var(--yellow-soft); padding: 8px 14px; border-radius: 12px; }

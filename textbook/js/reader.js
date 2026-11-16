@@ -79,14 +79,26 @@ export async function openReader(root, opts) {
       h('button', { class: 'tool nav', 'aria-label': '다음 쪽', onclick: () => next() }, icon('right'))));
   root.replaceChildren(wrap);
 
-  const loadingBox = h('div', { class: 'loading' }, h('div', { class: 'spin' }), h('div', { class: 'muted' }, '교재를 여는 중…'));
+  const loadText = h('div', { class: 'muted' }, '교재를 여는 중…');
+  const loadFill = h('i');
+  const loadBar = h('div', { class: 'load-bar hidden' }, loadFill);
+  const loadNote = h('div', { class: 'load-note hidden' });
+  const loadingBox = h('div', { class: 'loading' }, h('div', { class: 'spin' }), loadText, loadBar, loadNote);
   stage.append(loadingBox);
 
   // ---------- PDF 열기 ----------
   let bytes, pdf;
   try {
-    const got = await loadPdf(book, (frac) => {
-      loadingBox.lastChild.textContent = frac ? `교재를 내려받는 중… ${Math.round(frac * 100)}%` : '교재를 내려받는 중…';
+    // 기기에 아직 없는 교재를 받을 때만 진행 막대와 안내가 나온다 (저장된 교재는 바로 열림)
+    const got = await loadPdf(book, (frac, bytesGot, info = {}) => {
+      loadText.textContent = frac != null ? `교재를 내려받는 중… ${Math.round(frac * 100)}%` : '교재를 내려받는 중…';
+      loadBar.classList.remove('hidden');
+      loadBar.classList.toggle('indeterminate', frac == null);
+      if (frac != null) loadFill.style.width = `${Math.round(frac * 100)}%`;
+      loadNote.classList.remove('hidden');
+      loadNote.textContent = info.updating
+        ? '교재가 새로 바뀌어 다시 내려받고 있어요. 시간이 조금 걸릴 수 있습니다.'
+        : '최초 다운로드 시 시간이 걸릴 수 있습니다.';
     });
     bytes = got.data;
     if (got.offline) toast('인터넷이 연결되지 않아 저장된 교재를 엽니다.');
