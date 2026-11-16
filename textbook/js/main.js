@@ -423,7 +423,7 @@ async function adminNewStudent() {
 
 async function adminStudent(id) {
   const since30 = Date.now() - 30 * 86400000;
-  const [st, books, cats, prog, birthVal, sessions, likes] = await Promise.all([
+  let [st, books, cats, prog, birthVal, sessions, likes] = await Promise.all([
     store.getStudent(id), store.listBooks(), store.listCategories(), store.getProgress(id), store.getBirth(id),
     store.listSessions(since30), store.listLikes().catch(() => [])]);
   if (!st) return adminShell('students', h('p', { class: 'pad' }, '학생을 찾을 수 없어요.'));
@@ -434,7 +434,9 @@ async function adminStudent(id) {
 
   const visibleBooks = books.filter((b) => (st.visible || []).includes(b.id));
   const myLikes = likes.filter((l) => l.sid === id);
-  const birthInput = h('input', { class: 'input narrow', value: birthVal, inputmode: 'numeric', maxlength: 4 });
+  const birthInput = h('input', { class: 'input narrow', value: birthVal, inputmode: 'numeric', maxlength: 4, placeholder: '0315' });
+  // 학생 추가 도중 멈춰서 생일이 저장되지 않은 경우
+  const noBirth = birthVal ? h('span') : h('div', { class: 'notice warn' }, '생일이 저장되지 않은 학생이에요. 처음 학생을 추가할 때 입력한 생일 4자리를 넣고 저장을 눌러 주세요.');
   adminShell('students',
     h('a', { class: 'back-link', href: '#/admin/students' }, icon('back'), '학생 목록'),
     h('section', { class: 'card' },
@@ -445,8 +447,11 @@ async function adminStudent(id) {
           const b = normBirth(birthInput.value);
           if (!isValidBirth(b)) return toast('생일 4자리를 확인해 주세요.', 'bad');
           if (b === birthVal) return;
-          busy(e.target, true); try { await store.setBirth(id, b); toast('바꿨어요.', 'good'); } catch (err) { toast(err.message, 'bad'); } finally { busy(e.target, false); }
-        } }, '변경')),
+          busy(e.target, true);
+          try { await store.setBirth(id, b); birthVal = b; noBirth.remove(); toast(`생일을 저장했어요 · ${b}`, 'good'); }
+          catch (err) { toast(err.message, 'bad'); } finally { busy(e.target, false); }
+        } }, birthVal ? '변경' : '저장')),
+      noBirth,
       h('p', { class: 'muted small' }, `마지막 접속 ${fmtDate(st.lastSeen)} · 최근 30일 연습 ${fmtMinutes(sumSeconds(sessions, id))}`)),
     h('section', { class: 'card' }, h('h3', null, '교재와 진도'),
       h('p', { class: 'muted small' }, '카테고리마다 지금 배우는 교재와 곡을 정하세요. 학생은 진도 저장 버튼으로 직접 바꿀 수도 있어요.'),

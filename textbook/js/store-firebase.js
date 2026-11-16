@@ -8,7 +8,7 @@ import {
   setPersistence, inMemoryPersistence,
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
-  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache, writeBatch,
   doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, collection, query, where, orderBy, limit,
   serverTimestamp,
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
@@ -20,11 +20,27 @@ export const demo = false;
 const DOMAIN = 'lemontree-textbook.app';
 const app = initializeApp(config.firebase);
 const auth = getAuth(app);
+// 아이패드·아이폰(사파리 계열)에서는 Firestore의 기기 저장(IndexedDB)이 가끔 멈춰서
+// 저장이 끝나지 않는 문제가 알려져 있다. 그래서 사파리 계열은 메모리 캐시만 쓴다.
+// (교재 PDF는 이와 따로 Cache Storage에 저장되므로 영향이 없다)
+const isWebKitOnly = /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Android|Edg\//.test(navigator.userAgent)
+  || /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 let db;
 try {
-  db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+  db = initializeFirestore(app, {
+    localCache: isWebKitOnly ? memoryLocalCache() : persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  });
 } catch {
-  db = initializeFirestore(app, {});
+  db = initializeFirestore(app, { localCache: memoryLocalCache() });
+}
+
+// 서버 응답이 너무 오래 없으면 화면이 멈춰 있지 않도록 오류로 돌려준다
+function withTimeout(promise, ms = 20000) {
+  let t;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { t = setTimeout(() => reject(new Error('서버 응답이 없습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.')), ms); }),
+  ]).finally(() => clearTimeout(t));
 }
 
 // 한글 이름을 로그인용 이메일로 바꾼다 (실제로 메일이 가지는 않는다)
@@ -177,8 +193,11 @@ export async function addStudent(name, birth) {
       throw e;
     }
   });
-  await setDoc(doc(db, 'students', uid), { name: n, active: true, tracks: {}, visible: [], lastSeen: null, createdAt: Date.now() }, { merge: true });
-  await setDoc(doc(db, 'studentSecrets', uid), { birth: b });
+  // 학생 정보와 생일을 한 번에 저장한다 (둘 중 하나만 저장되는 일이 없도록)
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'students', uid), { name: n, active: true, tracks: {}, visible: [], lastSeen: null, createdAt: Date.now() }, { merge: true });
+  batch.set(doc(db, 'studentSecrets', uid), { birth: b });
+  await withTimeout(batch.commit());
   return uid;
 }
 export async function updateStudent(id, patch) { await updateDoc(doc(db, 'students', id), patch); }
@@ -189,11 +208,26 @@ export async function getBirth(id) {
 export async function setBirth(id, birth) {
   const st = await getStudent(id);
   const old = await getBirth(id);
+  const nb = normBirth(birth);
   await withSecondaryAuth(async (sAuth) => {
-    const cred = await signInWithEmailAndPassword(sAuth, studentEmail(st.name), studentPassword(old));
-    await updatePassword(cred.user, studentPassword(birth));
+    // 1) 저장된 생일로 들어가서 비밀번호를 바꾼다
+    if (old) {
+      try {
+        const cred = await signInWithEmailAndPassword(sAuth, studentEmail(st.name), studentPassword(old));
+        if (old !== nb) await updatePassword(cred.user, studentPassword(nb));
+        return;
+      } catch { /* 아래에서 다시 시도 */ }
+    }
+    // 2) 생일이 저장되지 않았던 경우: 계정이 이미 새 생일로 만들어져 있으면 그대로 맞춰 준다
+    try {
+      await signInWithEmailAndPassword(sAuth, studentEmail(st.name), studentPassword(nb));
+    } catch {
+      throw new Error(old
+        ? '생일을 바꾸지 못했어요. 잠시 뒤 다시 시도해 주세요.'
+        : '이 학생은 생일이 저장되지 않은 상태예요. 처음 학생을 추가할 때 입력한 생일 4자리를 넣고 다시 눌러 주세요.');
+    }
   });
-  await setDoc(doc(db, 'studentSecrets', id), { birth: normBirth(birth) });
+  await withTimeout(setDoc(doc(db, 'studentSecrets', id), { birth: nb }));
 }
 export async function touchStudent(id) { await updateDoc(doc(db, 'students', id), { lastSeen: Date.now() }).catch(() => {}); }
 
