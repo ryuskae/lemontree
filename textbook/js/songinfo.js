@@ -7,6 +7,45 @@ import { h, sheet, toast, busy, icon } from './ui.js';
 const MAX_TOTAL = 850 * 1024;
 const MAX_IMAGES = 6;
 
+// 유튜브 주소에서 영상 id와 시작 시각(초)을 꺼낸다
+export function youtubeOf(url) {
+  let u;
+  try { u = new URL(url); } catch { return null; }
+  const host = u.hostname.replace(/^www\.|^m\.|^music\./, '');
+  let id = null;
+  if (host === 'youtu.be') id = u.pathname.slice(1).split('/')[0];
+  else if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
+    if (u.pathname === '/watch') id = u.searchParams.get('v');
+    else { const m = u.pathname.match(/^\/(shorts|embed|live|v)\/([^/?#]+)/); if (m) id = m[2]; }
+  }
+  if (!id || !/^[\w-]{6,20}$/.test(id)) return null;
+  const t = u.searchParams.get('t') || u.searchParams.get('start') || '';
+  let start = 0;
+  if (/^\d+$/.test(t)) start = +t;
+  else { const m = t.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/); if (m) start = (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0); }
+  return { id, start };
+}
+function youtubeEmbed({ id, start }) {
+  const src = `https://www.youtube-nocookie.com/embed/${id}?playsinline=1&rel=0${start ? `&start=${start}` : ''}`;
+  return h('div', { class: 'yt' }, h('iframe', {
+    src, title: '유튜브 영상', loading: 'lazy', allowfullscreen: '',
+    allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share',
+    referrerpolicy: 'strict-origin-when-cross-origin',
+  }));
+}
+
+// 글을 화면에 그린다: 인터넷 주소는 링크로, 유튜브 주소가 있는 줄 아래에는 영상을 바로 넣는다
+function renderText(text) {
+  const out = [];
+  text.split('\n').forEach((line, i, all) => {
+    out.push(...linkify(line));
+    const vids = (line.match(/https?:\/\/[^\s]+/g) || []).map(youtubeOf).filter(Boolean);
+    if (vids.length) vids.forEach((v) => out.push(youtubeEmbed(v)));
+    else if (i < all.length - 1) out.push('\n');
+  });
+  return out;
+}
+
 // 글 안의 인터넷 주소는 누를 수 있는 링크로 바꾼다
 function linkify(text) {
   const out = [];
@@ -38,7 +77,7 @@ export function showSongInfo(song, info) {
     Promise.resolve(info).then((v) => {
       if (!v || (!v.text && !(v.images || []).length)) { box.replaceChildren(h('p', { class: 'muted' }, '아직 등록된 곡 정보가 없어요.')); return; }
       box.replaceChildren(...[
-        v.text ? h('div', { class: 'song-info-text' }, linkify(v.text)) : null,
+        v.text ? h('div', { class: 'song-info-text' }, renderText(v.text)) : null,
         ...(v.images || []).map((src) => h('button', { class: 'song-info-img', onclick: () => openImage(src), 'aria-label': '사진 크게 보기' }, h('img', { src, alt: '', loading: 'lazy' }))),
       ].filter(Boolean));
     }).catch(() => box.replaceChildren(h('p', { class: 'bad-text' }, '곡 정보를 불러오지 못했어요. 인터넷 연결을 확인해 주세요.')));
@@ -123,7 +162,7 @@ export function editSongInfo({ store, book, song, onSaved }) {
     body.append(
       h('label', { class: 'field' }, h('span', null, '글'), text),
       h('div', { class: 'field' }, h('span', null, '사진'), thumbs, h('div', { class: 'row wrap' }, addBtn, fileIn), meter),
-      h('p', { class: 'muted small' }, '사진은 기기에서 자동으로 줄여서 저장해요. 악보나 손글씨처럼 글씨가 작은 사진은 한 장씩 넣는 편이 선명해요.'),
+      h('p', { class: 'muted small' }, '유튜브 주소를 글에 넣으면 학생 화면의 곡 정보 창에서 영상이 바로 재생돼요. 사진은 기기에서 자동으로 줄여서 저장해요.'),
       h('div', { class: 'row between wrap' }, has ? delBtn : h('span'), saveBtn));
     paintThumbs();
     if (has) {
