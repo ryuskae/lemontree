@@ -13,7 +13,7 @@ import {
   serverTimestamp,
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { config } from './config.js';
-import { normName, normBirth, visibleBookIds, likeId, byOrder } from './core.js';
+import { normName, normBirth, visibleBookIds, likeId, byOrder, songInfoId } from './core.js';
 
 export const demo = false;
 
@@ -356,3 +356,37 @@ export async function createKiosk(password) {
 }
 
 export { serverTimestamp };
+
+// 곡 정보 (곡마다 문서 하나: 글 + 사진). 어떤 곡에 정보가 있는지는 교재 문서의 infoSongs에 적어 둔다.
+export async function getSongInfo(bookId, song) {
+  const s = await getDoc(doc(db, 'songInfo', songInfoId(bookId, song)));
+  return s.exists() ? s.data() : null;
+}
+export async function setSongInfo(book, song, { text, images }) {
+  const infoSongs = [...new Set([...(book.infoSongs || []), song])];
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'songInfo', songInfoId(book.id, song)), { bookId: book.id, song, text: text || '', images: images || [], updatedAt: Date.now() });
+  batch.update(doc(db, 'books', book.id), { infoSongs });
+  await withTimeout(batch.commit(), 30000);
+  return infoSongs;
+}
+export async function deleteSongInfo(book, song) {
+  const infoSongs = (book.infoSongs || []).filter((t) => t !== song);
+  const batch = writeBatch(db);
+  batch.delete(doc(db, 'songInfo', songInfoId(book.id, song)));
+  batch.update(doc(db, 'books', book.id), { infoSongs });
+  await withTimeout(batch.commit());
+  return infoSongs;
+}
+// 목차에서 곡 이름을 바꾸면 곡 정보도 새 이름으로 옮긴다
+export async function renameSongInfo(book, from, to) {
+  const old = await getSongInfo(book.id, from);
+  if (!old) return book.infoSongs || [];
+  const infoSongs = (book.infoSongs || []).map((t) => (t === from ? to : t));
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'songInfo', songInfoId(book.id, to)), { ...old, song: to, updatedAt: Date.now() });
+  batch.delete(doc(db, 'songInfo', songInfoId(book.id, from)));
+  batch.update(doc(db, 'books', book.id), { infoSongs });
+  await withTimeout(batch.commit(), 30000);
+  return infoSongs;
+}

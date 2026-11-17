@@ -53,6 +53,12 @@ service cloud.firestore {
       allow read, write: if isAdmin() || isKiosk() || (isStudent() && request.auth.uid == uid);
     }
 
+    // 곡 정보 (글 + 사진). 그 교재를 볼 수 있는 학생만 읽는다
+    match /songInfo/{id} {
+      allow read: if isAdmin() || isKiosk() || (isStudent() && resource.data.bookId in me().visible);
+      allow write: if isAdmin();
+    }
+
     // 좋아요 (학생·교재·곡마다 문서 하나)
     match /likes/{id} {
       allow read: if isAdmin() || isKiosk() || (isStudent() && resource.data.sid == request.auth.uid);

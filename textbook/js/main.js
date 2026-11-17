@@ -3,6 +3,7 @@
 import { config, APP_VERSION } from './config.js';
 import { h, $, toast, sheet, confirmBox, spinner, busy, icon, toggleSwitch } from './ui.js';
 import { openReader } from './reader.js';
+import { editSongInfo } from './songinfo.js';
 import { driveMeta, loadPdf, clearPdfCache } from './pdfsource.js';
 import {
   normName, normBirth, isValidBirth, sortToc, makeBookmark, parseDriveId, fmtDate, fmtMinutes,
@@ -601,7 +602,8 @@ async function adminBook(id) {
   let book = b0;
   if (!book) return adminShell('books', h('p', { class: 'pad' }, '교재를 찾을 수 없어요.'));
   let n = book.numPages || 0;
-  let toc = sortToc(book.toc).map((e) => ({ ...e }));
+  // orig: 저장된 곡 이름 (이름을 바꾸면 곡 정보도 따라 옮기기 위해)
+  let toc = sortToc(book.toc).map((e) => ({ ...e, orig: e.t }));
 
   const title = h('input', { class: 'input', value: book.title });
   const catSel = h('select', { class: 'input', onchange: async (e) => {
@@ -674,6 +676,11 @@ async function adminBook(id) {
       ...toc.map((e) => h('div', { class: 'toc-row' },
         h('button', { class: 'icon-btn insert', title: '이 곡 앞에 곡 넣기', 'aria-label': '이 곡 앞에 곡 넣기', onclick: () => insertBefore(e) }, icon('plus')),
         h('input', { class: 'input', value: e.t, placeholder: '곡 이름', oninput: (ev) => { e.t = ev.target.value; paintDupes(); } }),
+        h('button', { class: 'icon-btn info-edit' + ((book.infoSongs || []).includes(e.orig) && e.orig === (e.t || '').trim() ? ' has' : ''), title: '곡 정보', 'aria-label': '곡 정보', onclick: () => {
+          const t = (e.t || '').trim();
+          if (!e.orig || e.orig !== t) return toast('이 곡은 아직 목차에 저장되지 않았어요. 목차 저장을 먼저 눌러 주세요.', 'bad');
+          editSongInfo({ store, book, song: t, onSaved: (infoSongs) => { book = { ...book, infoSongs }; renderToc(); } });
+        } }, icon('info')),
         h('input', { class: 'input narrow', type: 'number', min: 1, value: e.p, 'aria-label': '시작 쪽', oninput: (ev) => { e.p = +ev.target.value; paintSpans(); } }),
         h('span', { class: 'toc-span muted small', 'data-span': '' }),
         h('button', { class: 'icon-btn', 'aria-label': '삭제', onclick: () => removeSong(e) }, icon('close')))),
@@ -718,8 +725,15 @@ async function adminBook(id) {
     }
     if (clean.some((e) => !e.t)) return toast('이름이 비어 있는 곡이 있어요.', 'bad');
     busy(btn, true);
+    // 이름이 바뀐 곡의 곡 정보를 새 이름으로 옮긴다
+    for (const e of toc) {
+      const t = (e.t || '').trim();
+      if (e.orig && e.orig !== t && (book.infoSongs || []).includes(e.orig)) {
+        try { book = { ...book, infoSongs: await store.renameSongInfo(book, e.orig, t) }; } catch { /* 곡 정보는 옛 이름에 남는다 */ }
+      }
+    }
     await store.updateBook(id, { toc: clean, tocPages: n });
-    book = { ...book, toc: clean, tocPages: n }; toc = clean.map((e) => ({ ...e }));
+    book = { ...book, toc: clean, tocPages: n }; toc = clean.map((e) => ({ ...e, orig: e.t }));
     renderToc(); renderWarn(); busy(btn, false); toast('목차를 저장했어요.', 'good');
   };
 
@@ -740,7 +754,7 @@ async function adminBook(id) {
         toggle('coverSingle', '두 쪽 보기에서 1쪽(표지) 혼자 보이기', '책처럼 짝수 쪽이 왼쪽에 옵니다', '켜짐', '꺼짐'),
         toggle('downloadable', '학생 다운로드', '켜면 학생 교재 화면에 내려받기 버튼이 생겨요', '허용', '허용 안 함'))),
     h('section', { class: 'card' }, h('h3', null, '목차 (곡 목록)'),
-      h('p', { class: 'muted small' }, '곡마다 시작 쪽을 적어 주세요. 학생 진도와 좋아요는 이 곡 단위로 저장됩니다. 예를 들어 7쪽에서 시작해 10쪽까지 이어지는 곡의 9쪽을 저장하면 "곡 이름 · 3/4쪽"으로 기록돼요. 곡 사이에 새 곡을 넣을 때는 그 자리 바로 뒤 곡의 왼쪽 +를 누르면, 뒤의 곡들이 새 곡 쪽 수만큼 함께 밀려요. 곡을 뺄 때는 ×를 누르면 뒤의 곡들을 당길지 물어봐요.'),
+      h('p', { class: 'muted small' }, '곡마다 시작 쪽을 적어 주세요. 학생 진도와 좋아요는 이 곡 단위로 저장됩니다. 예를 들어 7쪽에서 시작해 10쪽까지 이어지는 곡의 9쪽을 저장하면 "곡 이름 · 3/4쪽"으로 기록돼요. 곡 사이에 새 곡을 넣을 때는 그 자리 바로 뒤 곡의 왼쪽 +를 누르면, 뒤의 곡들이 새 곡 쪽 수만큼 함께 밀려요. 곡을 뺄 때는 ×를 누르면 뒤의 곡들을 당길지 물어봐요. 곡 이름 옆 ⓘ 버튼으로 곡 정보(글과 사진)를 넣으면, 학생 교재 화면에 \'곡 정보\' 버튼이 생겨요.'),
       warn, tocBox, dupNote,
       h('div', { class: 'row end' }, h('button', { class: 'btn primary', onclick: (e) => saveToc(e.currentTarget) }, '목차 저장'))),
     h('section', { class: 'card' }, h('h3', null, '파일 바꾸기 · 삭제'),

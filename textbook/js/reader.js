@@ -1,5 +1,6 @@
 // 교재 보기 화면: PDF 표시, 한 쪽/두 쪽 보기, 전체보기, 넘기기, 목차, 진도 저장, 좋아요, 다운로드, 연습 시간 기록
 
+import { showSongInfo } from './songinfo.js';
 import { h, toast, sheet, icon } from './ui.js';
 import { loadPdf } from './pdfsource.js';
 import { resolveBookmark, makeBookmark, sortToc, tocEntryFor, songAt, progressLabel } from './core.js';
@@ -51,6 +52,8 @@ export async function openReader(root, opts) {
   const markBtn = tracking ? h('button', { class: 'tool mark', title: '여기까지 연습했어요' }, icon('bookmark'), markLabel) : null;
   const tocBtn = tool('list', '목차', { class: 'tool keep', onclick: () => openPanel('toc') });
   const likesBtn = tracking ? tool('heartList', '좋아요 목록', { class: 'tool keep', onclick: () => openPanel('likes') }) : null;
+  // 곡 정보가 있는 곡을 보고 있을 때만 나타난다
+  const infoBtn = tool('info', '곡 정보', { class: 'tool keep info hidden', onclick: () => openInfo() });
   const dlBtn = book.downloadable ? tool('download', '내려받기') : null;
   const addTocBtn = role === 'admin' ? tool('plus', '목차에 추가') : null;
   const zoomOutBtn = h('button', { class: 'tool nav', 'aria-label': '축소' }, icon('zoomOut'));
@@ -68,7 +71,7 @@ export async function openReader(root, opts) {
       h('button', { class: 'tool back', 'aria-label': '목록으로', onclick: () => exit(true) }, icon('back')),
       h('div', { class: 'r-title' }, h('div', { class: 'r-name' }, book.title), titleSub),
       h('div', { class: 'r-tools' },
-        tocBtn, likesBtn,
+        infoBtn, tocBtn, likesBtn,
         segment, fullBtn, addTocBtn, dlBtn, likeBtn, markBtn)),
     banner,
     h('div', { class: 'r-main' }, stage, tocPanel, fullBar),
@@ -411,6 +414,7 @@ export async function openReader(root, opts) {
     highlightToc();
     paintLike();
     paintMark();
+    paintInfo();
     track(pages);
     let canvases;
     try { canvases = await Promise.all(pages.map((p) => renderPage(p, bw0, bh0, zoom))); } catch { return; }
@@ -502,7 +506,7 @@ export async function openReader(root, opts) {
       body = toc.length
         ? h('ol', { class: 'r-toc-list' }, toc.map((e) => h('li', null,
           h('button', { 'data-p': e.p, onclick: () => { go(e.p); closeIfNarrow(); } },
-            h('span', null, e.t, likedSongs().has(e.t) ? h('span', { class: 'heart-mini' }, ' ♥') : null), h('span', { class: 'muted' }, `${e.p}`)))))
+            h('span', null, e.t, likedSongs().has(e.t) ? h('span', { class: 'heart-mini' }, ' ♥') : null, hasInfo(e.t) ? h('span', { class: 'info-mini', title: '곡 정보 있음' }, ' ⓘ') : null), h('span', { class: 'muted' }, `${e.p}`)))))
         : h('p', { class: 'muted pad' }, '목차가 없는 교재입니다. 아래 막대로 쪽을 옮겨 주세요.');
     } else {
       const row = (song, right, below, onclick) => h('li', null, h('button', { onclick, disabled: !onclick },
@@ -545,6 +549,15 @@ export async function openReader(root, opts) {
 
   // ---------- 곡 고르기 (두 쪽에 곡이 둘이면 물어본다) ----------
   const songOf = (p) => songAt(book, p, n)?.title || book.title;
+  // ---------- 곡 정보 ----------
+  const hasInfo = (song) => (book.infoSongs || []).includes(song);
+  function paintInfo() { infoBtn.classList.toggle('hidden', !visible(page).some((p) => hasInfo(songOf(p)))); }
+  function openInfo() {
+    const pages = visible(page).filter((p) => hasInfo(songOf(p)));
+    if (!pages.length) return;
+    pickSong('어느 곡의 정보를 볼까요?', pages, (p, song) => showSongInfo(song, store.getSongInfo(book.id, song)));
+  }
+
   function pickSong(title, pages, then) {
     const songs = [...new Set(pages.map(songOf))];
     if (songs.length === 1) return then(pages[0], songs[0]);

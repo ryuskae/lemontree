@@ -62,15 +62,22 @@ export function spinner(text = '') {
   return h('div', { class: 'loading' }, h('div', { class: 'spin' }), text ? h('div', { class: 'muted' }, text) : null);
 }
 
+// 버튼을 잠시 '처리 중'으로 바꾼다. 아이콘이 있는 버튼도 원래 모양으로 되돌린다.
 export function busy(btn, on, label) {
-  if (on) { btn.dataset.label = btn.textContent; btn.textContent = label || '잠시만요…'; btn.disabled = true; }
-  else { btn.textContent = btn.dataset.label || btn.textContent; btn.disabled = false; }
+  if (on) {
+    if (!btn._saved) btn._saved = [...btn.childNodes];
+    btn.textContent = label || '잠시만요…'; btn.disabled = true;
+  } else {
+    if (btn._saved) { btn.replaceChildren(...btn._saved); btn._saved = null; }
+    btn.disabled = false;
+  }
 }
 
 // 선 아이콘 (24×24, 2px 선)
 const ICONS = {
   back: '<path d="M15 18l-6-6 6-6"/>',
   left: '<path d="M15 18l-6-6 6-6"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
   right: '<path d="M9 18l6-6-6-6"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/>',
   page1: '<rect x="6" y="3" width="12" height="18" rx="2"/>',

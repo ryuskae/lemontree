@@ -1,7 +1,7 @@
 // 체험 모드 저장소: 이 브라우저의 localStorage에만 저장되는 시험용 데이터
 // Firebase 저장소(store-firebase.js)와 똑같은 함수들을 제공한다.
 
-import { normName, normBirth, visibleBookIds, likeId, byOrder } from './core.js';
+import { normName, normBirth, visibleBookIds, likeId, byOrder, songInfoId } from './core.js';
 
 const KEY = 'lt-demo-v2';
 const SESSION_KEY = 'lt-demo-session';
@@ -237,3 +237,35 @@ export async function kioskStatus() { return { exists: !!db.kiosk.password }; }
 export async function createKiosk(password) { db.kiosk.password = password; save(); }
 
 export async function resetDemo() { db = seed(); save(); setSession(null); }
+
+// 곡 정보
+export async function getSongInfo(bookId, song) {
+  await wait();
+  const v = (db.songInfo || {})[songInfoId(bookId, song)];
+  return v ? clone(v) : null;
+}
+export async function setSongInfo(book, song, { text, images }) {
+  await wait();
+  db.songInfo = db.songInfo || {};
+  db.songInfo[songInfoId(book.id, song)] = { bookId: book.id, song, text: text || '', images: images || [], updatedAt: Date.now() };
+  const infoSongs = [...new Set([...(db.books[book.id].infoSongs || []), song])];
+  db.books[book.id].infoSongs = infoSongs;
+  try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { throw new Error('체험 모드의 저장 공간이 가득 찼어요. 사진 수를 줄여 주세요.'); }
+  return infoSongs;
+}
+export async function deleteSongInfo(book, song) {
+  await wait();
+  delete (db.songInfo || {})[songInfoId(book.id, song)];
+  const infoSongs = (db.books[book.id].infoSongs || []).filter((t) => t !== song);
+  db.books[book.id].infoSongs = infoSongs; save();
+  return infoSongs;
+}
+export async function renameSongInfo(book, from, to) {
+  const old = (db.songInfo || {})[songInfoId(book.id, from)];
+  if (!old) return db.books[book.id].infoSongs || [];
+  db.songInfo[songInfoId(book.id, to)] = { ...old, song: to };
+  delete db.songInfo[songInfoId(book.id, from)];
+  const infoSongs = (db.books[book.id].infoSongs || []).map((t) => (t === from ? to : t));
+  db.books[book.id].infoSongs = infoSongs; save();
+  return infoSongs;
+}

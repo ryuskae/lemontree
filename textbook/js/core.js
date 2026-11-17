@@ -130,3 +130,6 @@ export const ymd = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-
 
 // 좋아요 문서 ID (학생·교재·곡마다 하나)
 export const likeId = (sid, bookId, song) => `${sid}__${bookId}__${Array.from(new TextEncoder().encode(song)).map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 300)}`;
+
+// 곡 정보 문서 id: 교재 id + 곡 이름(16진수)
+export const songInfoId = (bookId, song) => `${bookId}__${Array.from(new TextEncoder().encode(song)).map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 600)}`;
