@@ -46,7 +46,7 @@ async function route() {
       if (parts[2] === 'read' && parts[3]) return viewRead({ bookId: parts[3], sid: parts[1], role: 'kiosk' });
       return viewStudentHome(parts[1], 'kiosk');
     }
-    return viewKiosk();
+    return isManageUrl() ? viewKioskManage() : viewKiosk();
   }
   if (parts[0] === 'read' && parts[1]) return viewRead({ bookId: parts[1], sid: session.uid, role: 'student' });
   return viewStudentHome(session.uid, 'student');
@@ -144,7 +144,7 @@ function registerTablet() {
     const msg = h('p', { class: 'form-msg' });
     const ok = h('button', { class: 'btn primary', onclick: async () => {
       busy(ok, true);
-      try { session = await store.registerKiosk(pw.value); setKioskDevice(true); close(); nav('#/'); toast('이 태블릿을 학원 태블릿으로 등록했어요.', 'good'); }
+      try { session = await store.registerKiosk(pw.value); setKioskDevice(true); close(); location.replace(location.pathname + '#/'); }
       catch (e) { msg.textContent = e.message; } finally { busy(ok, false); }
     } }, '등록');
     body.append(h('p', { class: 'sheet-msg' }, '학원 태블릿으로 등록하면 학생들이 이 기기에서 이름과 생일로 들어올 수 있어요. 학원 기기에서만 등록해 주세요.'), pw, msg, h('div', { class: 'row end' }, ok));
@@ -159,18 +159,32 @@ const brand = (text) => h('div', { class: 'brand' }, logo('sm'), h('span', null,
 
 // ---------------- 학원 태블릿: 학생 로그인 ----------------
 // 학생 이름 목록은 보여 주지 않고, 집에서처럼 이름과 생일을 넣어야 들어간다
+// 등록 해제와 선생님 로그인은 관리 주소(?manage)에서만 보인다
 function viewKiosk() {
   const form = studentLoginForm(async (n, b) => { const id = await store.verifyStudent(n, b); nav(`#/k/${id}`); });
-  const unregister = h('button', { class: 'linkish quiet', type: 'button', onclick: async () => {
-    const ok = await askKioskPassword({ title: '학원 태블릿 등록 해제', message: '등록을 해제하려면 학원 태블릿 비밀번호를 입력해 주세요.', okText: '해제', danger: true });
-    if (ok) { await store.logout(); setKioskDevice(false); goManage(); }
-  } }, '학원 태블릿 등록 해제 (선생님용)');
-  form.append(h('div', { class: 'login-links' }, unregister));
   shell(h('main', { class: 'login' },
     h('section', { class: 'login-hero' },
       h('div', { class: 'hero-logo' }, logo()),
       h('div', { class: 'hero-text' }, h('div', { class: 'eyebrow' }, ACADEMY), h('h1', null, '기타 교재'))),
     h('section', { class: 'login-panel' }, form)));
+}
+
+function viewKioskManage() {
+  const unregister = async () => {
+    const ok = await askKioskPassword({ title: '학원 태블릿 등록 해제', message: '등록을 해제하려면 학원 태블릿 비밀번호를 입력해 주세요.', okText: '해제', danger: true });
+    if (ok) { await store.logout(); setKioskDevice(false); nav('#/'); }
+  };
+  shell(h('main', { class: 'login' },
+    h('section', { class: 'login-hero' },
+      h('div', { class: 'hero-logo' }, logo()),
+      h('div', { class: 'hero-text' }, h('div', { class: 'eyebrow' }, ACADEMY), h('h1', null, '기타 교재'))),
+    h('section', { class: 'login-panel' }, h('div', { class: 'login-form' },
+      h('h2', null, '관리'),
+      h('p', { class: 'muted' }, '이 기기는 학원 태블릿으로 등록되어 있어요. 아래 기능은 모두 학원 태블릿 비밀번호를 물어요.'),
+      h('button', { class: 'btn primary big wide', type: 'button', onclick: adminLogin }, '선생님 로그인'),
+      h('button', { class: 'btn big wide', type: 'button', onclick: unregister }, '학원 태블릿 등록 해제'),
+      h('div', { class: 'login-links' }, h('a', { class: 'linkish quiet', href: location.pathname + '#/' }, '학생 로그인 화면으로')),
+      h('p', { class: 'hint' }, `앱 버전 · ${APP_VERSION}`)))));
 }
 
 // ---------------- 학생 홈: 카테고리별 내 교재 ----------------
