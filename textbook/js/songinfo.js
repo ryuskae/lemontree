@@ -3,6 +3,7 @@
 // Firestore 문서 하나는 1MB까지라서, 사진 전체를 약 850KB 안으로 맞춘다.
 
 import { h, sheet, toast, busy, icon } from './ui.js';
+import { youtubePlayer } from './ytplayer.js';
 
 const MAX_TOTAL = 850 * 1024;
 const MAX_IMAGES = 6;
@@ -25,23 +26,23 @@ export function youtubeOf(url) {
   else { const m = t.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/); if (m) start = (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0); }
   return { id, start };
 }
-function youtubeEmbed({ id, start }) {
-  const src = `https://www.youtube-nocookie.com/embed/${id}?playsinline=1&rel=0${start ? `&start=${start}` : ''}`;
-  return h('div', { class: 'yt' }, h('iframe', {
-    src, title: '유튜브 영상', loading: 'lazy', allowfullscreen: '',
-    allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share',
-    referrerpolicy: 'strict-origin-when-cross-origin',
-  }));
-}
-
-// 글을 화면에 그린다: 인터넷 주소는 링크로, 유튜브 주소가 있는 줄 아래에는 영상을 바로 넣는다
+// 글을 화면에 그린다: 인터넷 주소는 링크로, 유튜브 주소는 글에서 빼고 그 자리에 영상을 바로 넣는다
+// (유튜브 주소를 링크로 두면 누를 때 유튜브 앱이 열린다)
 function renderText(text) {
   const out = [];
   text.split('\n').forEach((line, i, all) => {
-    out.push(...linkify(line));
-    const vids = (line.match(/https?:\/\/[^\s]+/g) || []).map(youtubeOf).filter(Boolean);
-    if (vids.length) vids.forEach((v) => out.push(youtubeEmbed(v)));
-    else if (i < all.length - 1) out.push('\n');
+    const urls = line.match(/https?:\/\/[^\s]+/g) || [];
+    const vids = urls.map((u) => [u, youtubeOf(u)]).filter(([, v]) => v);
+    if (vids.length) {
+      let rest = line;
+      vids.forEach(([u]) => { rest = rest.replace(u, ''); });
+      rest = rest.replace(/\s+$/, '');
+      if (rest.trim()) out.push(...linkify(rest));
+      vids.forEach(([, v]) => out.push(youtubePlayer(v)));
+    } else {
+      out.push(...linkify(line));
+      if (i < all.length - 1) out.push('\n');
+    }
   });
   return out;
 }

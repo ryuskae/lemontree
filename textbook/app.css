@@ -465,5 +465,38 @@ canvas.r-detail { position: absolute; display: block; pointer-events: none; }
 .tool.info { background: var(--yellow-soft); border-color: #ffe58f; }
 textarea { font: inherit; color: inherit; letter-spacing: inherit; }
 .song-info .field { margin-bottom: 14px; }
-.song-info-text .yt { position: relative; width: 100%; aspect-ratio: 16 / 9; margin: 10px 0 14px; border-radius: 14px; overflow: hidden; background: #000; }
-.song-info-text .yt iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+/* 유튜브 영상: 영상 위를 투명한 막으로 덮어 유튜브 버튼을 누를 수 없게 하고, 아래 막대로 조작한다 */
+.yt { display: flex; flex-direction: column; margin: 10px 0 14px; border-radius: 14px; overflow: hidden; background: #111; white-space: normal; line-height: 1.2; }
+.yt-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+.yt-slot, .yt-slot iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.yt-shield { position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; cursor: pointer; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+.yt-big { width: 68px; height: 68px; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; display: flex; align-items: center; justify-content: center; transition: opacity .2s, transform .2s; box-shadow: 0 2px 14px rgba(0,0,0,.35); }
+.yt-big .yt-ic { width: 34px; height: 34px; margin-left: 4px; }
+.yt.is-playing .yt-big { opacity: 0; transform: scale(.85); }
+.yt-msg { position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px; color: #fff; background: rgba(0,0,0,.78); font-weight: 600; word-break: keep-all; }
+.yt-bar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; color: #fff; }
+.yt-btn { flex: none; min-width: 40px; height: 40px; padding: 0 8px; border: 0; border-radius: 10px; background: transparent; color: #fff; display: inline-flex; align-items: center; justify-content: center; gap: 4px; font: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
+.yt-btn:active { background: rgba(255,255,255,.16); }
+.yt-btn svg { width: 22px; height: 22px; }
+.yt-ic { display: inline-flex; width: 24px; height: 24px; }
+.yt-ic svg { width: 100%; height: 100%; }
+.yt-sound { background: var(--yellow); color: var(--ink); }
+.yt-rate { min-width: 48px; background: rgba(255,255,255,.1); }
+.yt-seek { flex: 1; min-width: 60px; accent-color: var(--yellow); height: 28px; }
+.yt-time { flex: none; font-size: 13px; font-variant-numeric: tabular-nums; opacity: .85; }
+@media (max-width: 480px) { .yt-time { display: none; } }
+.yt:fullscreen { margin: 0; border-radius: 0; width: 100%; height: 100%; background: #000; }
+.yt:fullscreen .yt-frame { flex: 1; aspect-ratio: auto; }
+.yt:-webkit-full-screen { margin: 0; border-radius: 0; width: 100%; height: 100%; background: #000; }
+.yt:-webkit-full-screen .yt-frame { flex: 1; aspect-ratio: auto; }
+
+/* ---------- 책장 넘기기 ---------- */
+.r-flip { perspective: 2400px; }
+.r-pagebox.turning { z-index: 2; }
+.r-leaf { position: absolute; inset: 0; transform-style: preserve-3d; will-change: transform; pointer-events: none; }
+.r-face { position: absolute; inset: 0; background: #fff; overflow: hidden; backface-visibility: hidden; -webkit-backface-visibility: hidden; box-shadow: 0 2px 16px rgba(0,0,0,.18); }
+.r-face.back { transform: rotateY(180deg); }
+.r-face.blank { background: linear-gradient(to left, #f1f1ee, #fbfbf9); }
+.r-face > canvas { display: block; box-shadow: none; border-radius: 0; }
+.r-shade { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+.reader.full .r-face { box-shadow: none; }

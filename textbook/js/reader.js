@@ -231,6 +231,8 @@ export async function openReader(root, opts) {
   let page = start;
   let token = 0;
   let shownPage = 0;
+  let shown = null;   // 지금 화면에 놓인 쪽들과 그 그림
+  let turning = null; // 넘기는 중인 책장
 
   // ---------- 확대 ----------
   const ZMIN = 1, ZMAX = 4;
@@ -420,10 +422,22 @@ export async function openReader(root, opts) {
     try { canvases = await Promise.all(pages.map((p) => renderPage(p, bw0, bh0, zoom))); } catch { return; }
     if (my !== token) return;
     clearDetail();
-    const spread = h('div', { class: 'r-spread' + (pages.length === 2 ? ' two' : '') },
+    settleTurn();
+    const build = () => h('div', { class: 'r-spread' + (pages.length === 2 ? ' two' : '') },
       canvases.map((c) => h('div', { class: 'r-pagebox', style: { width: c.style.width, height: c.style.height } }, c)));
     stage.classList.toggle('zoomed', zoom > 1);
-    stage.replaceChildren(spread);
+    // 쪽이 바뀌면 종이책처럼 책장을 넘긴다 (확대 중이거나 한 쪽↔두 쪽 모양이 달라지면 살짝 밀어 바꾼다)
+    const old = shown;
+    const dir = old && pageChanged && zoom === 1 && old.zoom === 1 ? Math.sign(pages[0] - old.pages[0]) : 0;
+    let spread = null;
+    if (dir && old.canvases.length === canvases.length && !pages.some((p) => old.pages.includes(p)) && old.canvases.every((c) => c.isConnected)) {
+      turnPage(old.canvases, canvases, dir, build);
+    } else {
+      spread = build();
+      stage.replaceChildren(spread);
+      if (dir && spread.animate) spread.animate([{ opacity: 0, transform: `translateX(${dir * 40}px)` }, { opacity: 1, transform: 'none' }], { duration: 240, easing: 'ease-out' });
+    }
+    shown = { pages, canvases, zoom };
     shownPage = pages[0];
     if (zoom > 1) {
       if (pendingFocus) {
@@ -438,6 +452,73 @@ export async function openReader(root, opts) {
     const ahead = visible(Math.min(n, pages[pages.length - 1] + 1));
     const behind = visible(Math.max(1, pages[0] - 1));
     setTimeout(() => { if (my === token) [...ahead, ...behind].forEach((p) => renderPage(p, bw0, bh0, 1).catch(() => {})); }, 120);
+  }
+
+  // ---------- 책장 넘기기 ----------
+  // 넘어가는 책장 한 장을 앞면·뒷면이 있는 판으로 만들어 책등을 축으로 돌린다.
+  // 두 쪽 보기: 앞으로 넘기면 오른쪽 쪽이 들려 왼쪽으로 넘어가고, 그 뒷면이 새 왼쪽 쪽이 된다.
+  // 한 쪽 보기: 앞으로 넘기면 지금 쪽이 왼쪽으로 넘어가며 아래의 새 쪽이 드러나고, 뒤로 넘기면 앞 쪽이 왼쪽에서 넘어와 덮는다.
+  const TURN_MS = 560;
+  function settleTurn() {
+    const t = turning;
+    if (!t) return;
+    turning = null;
+    t.anims.forEach((a) => { try { a.cancel(); } catch { /* 무시 */ } });
+    t.done();
+  }
+  function turnPage(oldC, newC, dir, build) {
+    if (!document.body.animate) { stage.replaceChildren(build()); return; }
+    const two = newC.length === 2;
+    const box = (c) => h('div', { class: 'r-pagebox', style: { width: c.style.width, height: c.style.height } }, c);
+    let boxes, host, front, back, from, to, hingeRight = false;
+    if (!two) {
+      if (dir > 0) { host = box(newC[0]); front = oldC[0]; from = 0; to = -180; }
+      else { host = box(oldC[0]); front = newC[0]; from = -180; to = 0; }
+      boxes = [host]; back = null;
+    } else if (dir > 0) {
+      boxes = [box(oldC[0]), box(newC[1])]; host = boxes[1];
+      front = oldC[1]; back = newC[0]; from = 0; to = -180;
+    } else {
+      boxes = [box(newC[0]), box(oldC[1])]; host = boxes[0];
+      front = oldC[0]; back = newC[1]; from = 0; to = 180; hingeRight = true;
+    }
+    // 책등 쪽이 어둡게: 앞면은 책등이 왼쪽(뒤로 넘길 때는 오른쪽), 뒷면은 그 반대
+    const nearSpine = (side) => `linear-gradient(to ${side}, rgba(0,0,0,.42), rgba(0,0,0,.14) 45%, rgba(0,0,0,.04))`;
+    const frontSide = hingeRight ? 'left' : 'right', backSide = hingeRight ? 'right' : 'left';
+    const fShade = h('div', { class: 'r-shade', style: { background: nearSpine(frontSide) } });
+    const bShade = h('div', { class: 'r-shade', style: { background: nearSpine(backSide) } });
+    const under = h('div', { class: 'r-shade', style: { background: nearSpine(frontSide) } });
+    const fFace = h('div', { class: 'r-face' }, front, fShade);
+    const bFace = h('div', { class: 'r-face back' + (back ? '' : ' blank') }, back, bShade);
+    const leaf = h('div', { class: 'r-leaf' }, fFace, bFace);
+    host.classList.add('turning');
+    host.append(under, leaf);
+    stage.replaceChildren(h('div', { class: 'r-spread r-flip' + (two ? ' two' : '') }, boxes));
+    if (two) {
+      const gap = Math.max(0, boxes[1].offsetLeft - boxes[0].offsetLeft - boxes[0].offsetWidth);
+      leaf.style.transformOrigin = hingeRight ? `calc(100% + ${gap / 2}px) 50%` : `${-gap / 2}px 50%`;
+    } else leaf.style.transformOrigin = '0 50%';
+
+    const ease = 'cubic-bezier(.4,.04,.22,1)';
+    const opt = { duration: TURN_MS, easing: ease, fill: 'both' };
+    const startsFront = from === 0; // 처음에 보이는 면
+    const fadeIn = [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }];
+    const fadeOut = [{ opacity: 1 }, { opacity: 1, offset: 0.5 }, { opacity: 0 }];
+    let leafFrames = [{ transform: `rotateY(${from}deg)` }, { transform: `rotateY(${to}deg)` }];
+    // 한 쪽 보기에서는 넘어간 책장이 쪽 바깥에 남지 않도록 쪽 밖에 있을 때 흐리게 한다
+    if (!two) {
+      const [a, b] = dir > 0 ? [1, 0] : [0, 1];
+      leafFrames = [{ ...leafFrames[0], opacity: a }, { opacity: 1, offset: dir > 0 ? 0.62 : 0.38 }, { ...leafFrames[1], opacity: b }];
+    }
+    const anims = [
+      leaf.animate(leafFrames, opt),
+      fShade.animate(startsFront ? fadeIn : fadeOut, opt),
+      bShade.animate(startsFront ? fadeOut : fadeIn, opt),
+      under.animate(dir > 0 || two ? [{ opacity: 0.7 }, { opacity: 0 }] : [{ opacity: 0 }, { opacity: 0.5 }], opt),
+    ];
+    const t = { anims, done: () => stage.replaceChildren(build()) };
+    turning = t;
+    anims[0].onfinish = () => { if (turning === t) { turning = null; t.done(); } };
   }
 
   const go = (p) => { page = Math.max(1, Math.min(n, p)); show(); };
