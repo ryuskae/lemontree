@@ -469,7 +469,7 @@ export async function openReader(root, opts) {
   // 쪽 그림의 복사본 (넘기는 동안만 쓰므로 해상도를 조금 낮춰 메모리를 아낀다)
   function snap(c) {
     const cssW = parseFloat(c.style.width) || c.width;
-    const k = Math.min(1, (cssW * Math.min(DPR(), 1.5)) / c.width);
+    const k = Math.min(1, (cssW * Math.min(DPR(), 2)) / c.width);
     const s = document.createElement('canvas');
     s.width = Math.max(1, Math.round(c.width * k)); s.height = Math.max(1, Math.round(c.height * k));
     s.getContext('2d').drawImage(c, 0, 0, s.width, s.height);
@@ -520,8 +520,11 @@ export async function openReader(root, opts) {
     const ease = 'cubic-bezier(.4,.04,.22,1)';
     const opt = { duration: TURN_MS, easing: ease, fill: 'both' };
     const startsFront = from === 0; // 처음에 보이는 면
-    const fadeIn = [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }];
-    const fadeOut = [{ opacity: 1 }, { opacity: 1, offset: 0.5 }, { opacity: 0 }];
+    // 앞면·뒷면은 책장이 똑바로 선 순간(가운데)에 직접 바꿔 보여 준다 (브라우저의 뒷면 숨김은 끝 무렵에 깜빡일 수 있다)
+    const showFirst = [{ opacity: 1 }, { opacity: 1, offset: 0.5 }, { opacity: 0, offset: 0.5 }, { opacity: 0 }];
+    const showSecond = [{ opacity: 0 }, { opacity: 0, offset: 0.5 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }];
+    // 그림자는 책장이 서 있을 때만 진하고 처음과 끝에는 없다
+    const shadeFrames = [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 0 }];
     let leafFrames = [{ transform: `rotateY(${from}deg)` }, { transform: `rotateY(${to}deg)` }];
     // 한 쪽 보기에서는 넘어간 책장이 쪽 바깥에 남지 않도록 쪽 밖에 있을 때 흐리게 한다
     if (!two) {
@@ -530,8 +533,10 @@ export async function openReader(root, opts) {
     }
     const anims = [
       leaf.animate(leafFrames, opt),
-      fShade.animate(startsFront ? fadeIn : fadeOut, opt),
-      bShade.animate(startsFront ? fadeOut : fadeIn, opt),
+      fFace.animate(startsFront ? showFirst : showSecond, opt),
+      bFace.animate(startsFront ? showSecond : showFirst, opt),
+      fShade.animate(shadeFrames, opt),
+      bShade.animate(shadeFrames, opt),
       under.animate(dir > 0 || two ? [{ opacity: 0.7 }, { opacity: 0 }] : [{ opacity: 0 }, { opacity: 0.5 }], opt),
     ];
     const t = { anims, done: () => {
