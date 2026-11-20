@@ -500,3 +500,7 @@ textarea { font: inherit; color: inherit; letter-spacing: inherit; }
 .r-face > canvas { display: block; box-shadow: none; border-radius: 0; }
 .r-shade { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
 .reader.full .r-face { box-shadow: none; }
+.r-cover { position: absolute; inset: 0; background: #fff; z-index: 1; }
+.r-cover > canvas, .r-face > canvas.r-snap { display: block; }
+.r-pagebox > .r-shade { z-index: 2; }
+.r-leaf { z-index: 3; }

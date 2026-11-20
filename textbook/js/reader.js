@@ -429,14 +429,14 @@ export async function openReader(root, opts) {
     // 쪽이 바뀌면 종이책처럼 책장을 넘긴다 (확대 중이거나 한 쪽↔두 쪽 모양이 달라지면 살짝 밀어 바꾼다)
     const old = shown;
     const dir = old && pageChanged && zoom === 1 && old.zoom === 1 ? Math.sign(pages[0] - old.pages[0]) : 0;
-    let spread = null;
-    if (dir && old.canvases.length === canvases.length && !pages.some((p) => old.pages.includes(p)) && old.canvases.every((c) => c.isConnected)) {
-      turnPage(old.canvases, canvases, dir, build);
-    } else {
-      spread = build();
-      stage.replaceChildren(spread);
-      if (dir && spread.animate) spread.animate([{ opacity: 0, transform: `translateX(${dir * 40}px)` }, { opacity: 1, transform: 'none' }], { duration: 240, easing: 'ease-out' });
-    }
+    const canTurn = dir && old.canvases.length === canvases.length && !pages.some((p) => old.pages.includes(p)) && old.canvases.every((c) => c.isConnected);
+    // 새 쪽 그림은 처음부터 제자리에 둔다. 넘어가는 책장은 그 위에 복사본으로 그렸다가 끝나면 걷어 낸다
+    // (그림을 옮기면 기기에 따라 한순간 검게 깜빡인다)
+    const oldSnaps = canTurn ? old.canvases.map(snap) : null;
+    const spread = build();
+    stage.replaceChildren(spread);
+    if (canTurn) turnPage(spread, oldSnaps, canvases, dir);
+    else if (dir && spread.animate) spread.animate([{ opacity: 0, transform: `translateX(${dir * 40}px)` }, { opacity: 1, transform: 'none' }], { duration: 240, easing: 'ease-out' });
     shown = { pages, canvases, zoom };
     shownPage = pages[0];
     if (zoom > 1) {
@@ -466,21 +466,38 @@ export async function openReader(root, opts) {
     t.anims.forEach((a) => { try { a.cancel(); } catch { /* 무시 */ } });
     t.done();
   }
-  function turnPage(oldC, newC, dir, build) {
-    if (!document.body.animate) { stage.replaceChildren(build()); return; }
+  // 쪽 그림의 복사본 (넘기는 동안만 쓰므로 해상도를 조금 낮춰 메모리를 아낀다)
+  function snap(c) {
+    const cssW = parseFloat(c.style.width) || c.width;
+    const k = Math.min(1, (cssW * Math.min(DPR(), 1.5)) / c.width);
+    const s = document.createElement('canvas');
+    s.width = Math.max(1, Math.round(c.width * k)); s.height = Math.max(1, Math.round(c.height * k));
+    s.getContext('2d').drawImage(c, 0, 0, s.width, s.height);
+    s.style.width = c.style.width; s.style.height = c.style.height;
+    s.className = 'r-snap';
+    return s;
+  }
+  function turnPage(spread, oldS, newC, dir) {
+    const freeAll = () => oldS.forEach((c) => { c.width = 0; c.height = 0; });
+    if (!document.body.animate) return freeAll();
     const two = newC.length === 2;
-    const box = (c) => h('div', { class: 'r-pagebox', style: { width: c.style.width, height: c.style.height } }, c);
-    let boxes, host, front, back, from, to, hingeRight = false;
+    const boxes = [...spread.children];
+    const extra = [];
+    const snaps = [...oldS];
+    // 덮개: 책장이 다 넘어올 때까지 옛 쪽을 그대로 보여 준다
+    const cover = (b, c) => { const el = h('div', { class: 'r-cover' }, c); b.append(el); extra.push(el); };
+    let host, front, back, from, to, hingeRight = false;
     if (!two) {
-      if (dir > 0) { host = box(newC[0]); front = oldC[0]; from = 0; to = -180; }
-      else { host = box(oldC[0]); front = newC[0]; from = -180; to = 0; }
-      boxes = [host]; back = null;
+      host = boxes[0];
+      if (dir > 0) { front = oldS[0]; from = 0; to = -180; }
+      else { cover(host, oldS[0]); front = snap(newC[0]); snaps.push(front); from = -180; to = 0; }
+      back = null;
     } else if (dir > 0) {
-      boxes = [box(oldC[0]), box(newC[1])]; host = boxes[1];
-      front = oldC[1]; back = newC[0]; from = 0; to = -180;
+      host = boxes[1]; cover(boxes[0], oldS[0]);
+      front = oldS[1]; back = snap(newC[0]); snaps.push(back); from = 0; to = -180;
     } else {
-      boxes = [box(newC[0]), box(oldC[1])]; host = boxes[0];
-      front = oldC[0]; back = newC[1]; from = 0; to = 180; hingeRight = true;
+      host = boxes[0]; cover(boxes[1], oldS[1]);
+      front = oldS[0]; back = snap(newC[1]); snaps.push(back); from = 0; to = 180; hingeRight = true;
     }
     // 책등 쪽이 어둡게: 앞면은 책등이 왼쪽(뒤로 넘길 때는 오른쪽), 뒷면은 그 반대
     const nearSpine = (side) => `linear-gradient(to ${side}, rgba(0,0,0,.42), rgba(0,0,0,.14) 45%, rgba(0,0,0,.04))`;
@@ -493,7 +510,8 @@ export async function openReader(root, opts) {
     const leaf = h('div', { class: 'r-leaf' }, fFace, bFace);
     host.classList.add('turning');
     host.append(under, leaf);
-    stage.replaceChildren(h('div', { class: 'r-spread r-flip' + (two ? ' two' : '') }, boxes));
+    extra.push(under, leaf);
+    spread.classList.add('r-flip');
     if (two) {
       const gap = Math.max(0, boxes[1].offsetLeft - boxes[0].offsetLeft - boxes[0].offsetWidth);
       leaf.style.transformOrigin = hingeRight ? `calc(100% + ${gap / 2}px) 50%` : `${-gap / 2}px 50%`;
@@ -516,7 +534,11 @@ export async function openReader(root, opts) {
       bShade.animate(startsFront ? fadeOut : fadeIn, opt),
       under.animate(dir > 0 || two ? [{ opacity: 0.7 }, { opacity: 0 }] : [{ opacity: 0 }, { opacity: 0.5 }], opt),
     ];
-    const t = { anims, done: () => stage.replaceChildren(build()) };
+    const t = { anims, done: () => {
+      extra.forEach((el) => el.remove());
+      host.classList.remove('turning'); spread.classList.remove('r-flip');
+      snaps.forEach((c) => { c.width = 0; c.height = 0; });
+    } };
     turning = t;
     anims[0].onfinish = () => { if (turning === t) { turning = null; t.done(); } };
   }
