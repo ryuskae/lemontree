@@ -113,6 +113,24 @@ export async function loginStudent(name, birth) {
   }
 }
 
+// 학원 태블릿에서 학생 확인: 태블릿 로그인은 그대로 두고 보조 인증으로 이름과 생일만 맞춰 본다
+export async function verifyStudent(name, birth) {
+  let uid;
+  try {
+    uid = await withSecondaryAuth(async (sAuth) => (await signInWithEmailAndPassword(sAuth, studentEmail(name), studentPassword(birth))).user.uid);
+  } catch (e) {
+    if (String(e.code || '').startsWith('auth/')) {
+      if (e.code === 'auth/too-many-requests') throw new Error('여러 번 틀려서 잠시 막혔습니다. 조금 뒤에 다시 해 주세요.');
+      if (e.code === 'auth/network-request-failed') throw new Error('인터넷 연결을 확인해 주세요.');
+      throw new Error('이름이나 생일이 맞지 않습니다.');
+    }
+    throw e;
+  }
+  const s = await getDoc(doc(db, 'students', uid));
+  if (!s.exists() || !s.data().active) throw new Error('지금은 사용할 수 없는 계정입니다. 선생님께 문의해 주세요.');
+  return uid;
+}
+
 export async function loginAdmin() {
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: 'select_account' });

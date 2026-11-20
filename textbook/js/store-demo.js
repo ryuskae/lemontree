@@ -93,6 +93,15 @@ export async function loginStudent(name, birth) {
   return setSession({ role: 'student', uid: id, name: db.students[id].name });
 }
 
+export async function verifyStudent(name, birth) {
+  await wait();
+  const n = normName(name), b = normBirth(birth);
+  const id = Object.keys(db.students).find((k) => normName(db.students[k].name) === n);
+  if (!id || db.secrets[id]?.birth !== b) throw new Error('이름이나 생일이 맞지 않습니다.');
+  if (!db.students[id].active) throw new Error('지금은 사용할 수 없는 계정입니다. 선생님께 문의해 주세요.');
+  return id;
+}
+
 export async function loginAdmin() {
   await wait();
   return setSession({ role: 'admin', uid: 'admin', name: '선생님' });

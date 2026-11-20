@@ -59,21 +59,22 @@ function demoBanner() {
 function shell(...kids) { app.replaceChildren(h('div', { class: 'page' }, demoBanner(), ...kids)); }
 
 // ---------------- 로그인 ----------------
-function viewLogin() {
+// 학생 로그인 칸 (집에서 쓰는 로그인 화면과 학원 태블릿이 함께 쓴다)
+function studentLoginForm(submit) {
   const name = h('input', { class: 'input big', placeholder: '예: 김민준', autocomplete: 'off', autocapitalize: 'off', enterkeyhint: 'next' });
   // '03/15'처럼 빗금을 넣어도 숫자만 남겨 0315로 읽는다
   const birth = h('input', { class: 'input big', placeholder: '예: 0315', inputmode: 'numeric', maxlength: 5, autocomplete: 'off', enterkeyhint: 'go' });
   const msg = h('p', { class: 'form-msg' });
   const go = h('button', { class: 'btn primary big wide', type: 'submit' }, '들어가기');
   name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); birth.focus(); } });
-  const form = h('form', { class: 'login-form', onsubmit: async (e) => {
+  return h('form', { class: 'login-form', onsubmit: async (e) => {
     e.preventDefault();
     msg.textContent = '';
     const n = normName(name.value), b = normBirth(birth.value);
     if (!n) { msg.textContent = '이름을 써 주세요.'; return name.focus(); }
     if (!isValidBirth(b)) { msg.textContent = '생일은 월과 날짜 4자리로 써 주세요. 3월 15일이면 0315예요.'; return birth.focus(); }
     busy(go, true, '확인하는 중…');
-    try { session = await store.loginStudent(n, b); nav('#/'); } catch (err) { msg.textContent = err.message; } finally { busy(go, false); }
+    try { await submit(n, b); } catch (err) { msg.textContent = err.message; } finally { busy(go, false); }
   } },
   h('h2', null, '내 교재 열기'),
   h('label', { class: 'field' }, h('span', null, '이름'), name),
@@ -81,6 +82,11 @@ function viewLogin() {
     h('small', { class: 'field-hint' }, '월 두 자리와 날짜 두 자리를 이어서 써요 · 3월 15일 → 0315, 11월 2일 → 1102')),
   msg, go,
   store.demo ? h('p', { class: 'hint' }, '체험: "민준" · 0315 또는 "서연" · 1102') : null);
+
+}
+
+function viewLogin() {
+  const form = studentLoginForm(async (n, b) => { session = await store.loginStudent(n, b); nav('#/'); });
 
   // 관리 주소(?manage)로 열었을 때만 선생님 로그인과 학원 태블릿 등록이 보인다
   const panel = isManageUrl()
@@ -141,7 +147,7 @@ function registerTablet() {
       try { session = await store.registerKiosk(pw.value); setKioskDevice(true); close(); nav('#/'); toast('이 태블릿을 학원 태블릿으로 등록했어요.', 'good'); }
       catch (e) { msg.textContent = e.message; } finally { busy(ok, false); }
     } }, '등록');
-    body.append(h('p', { class: 'sheet-msg' }, '학원 태블릿으로 등록하면 학생들이 이름만 눌러서 들어올 수 있어요. 학원 기기에서만 등록해 주세요.'), pw, msg, h('div', { class: 'row end' }, ok));
+    body.append(h('p', { class: 'sheet-msg' }, '학원 태블릿으로 등록하면 학생들이 이 기기에서 이름과 생일로 들어올 수 있어요. 학원 기기에서만 등록해 주세요.'), pw, msg, h('div', { class: 'row end' }, ok));
     setTimeout(() => pw.focus(), 50);
   }, { title: '학원 태블릿 등록' });
 }
@@ -151,23 +157,20 @@ function topbar(left, right) {
 }
 const brand = (text) => h('div', { class: 'brand' }, logo('sm'), h('span', null, text));
 
-// ---------------- 학원 태블릿: 이름 고르기 ----------------
-async function viewKiosk() {
-  shell(spinner());
-  let students = [];
-  try { students = (await store.listStudents()).filter((s) => s.active).sort((a, b) => a.name.localeCompare(b.name, 'ko')); }
-  catch { return shell(h('p', { class: 'pad' }, '학생 목록을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.')); }
-  shell(
-    topbar(brand(`${ACADEMY} 기타 교재`)),
-    h('main', { class: 'kiosk' },
-      h('h2', { class: 'kiosk-title' }, '내 이름을 눌러 주세요'),
-      students.length
-        ? h('div', { class: 'name-grid' }, students.map((s) => h('button', { class: 'name-btn', onclick: () => nav(`#/k/${s.id}`) }, s.name)))
-        : h('p', { class: 'center muted' }, '등록된 학생이 없어요. 관리자 페이지에서 학생을 추가해 주세요.'),
-      h('div', { class: 'kiosk-foot' }, h('button', { class: 'linkish quiet', onclick: async () => {
-        const ok = await askKioskPassword({ title: '학원 태블릿 등록 해제', message: '등록을 해제하려면 학원 태블릿 비밀번호를 입력해 주세요.', okText: '해제', danger: true });
-        if (ok) { await store.logout(); setKioskDevice(false); goManage(); }
-      } }, '학원 태블릿 등록 해제 (선생님용)'))));
+// ---------------- 학원 태블릿: 학생 로그인 ----------------
+// 학생 이름 목록은 보여 주지 않고, 집에서처럼 이름과 생일을 넣어야 들어간다
+function viewKiosk() {
+  const form = studentLoginForm(async (n, b) => { const id = await store.verifyStudent(n, b); nav(`#/k/${id}`); });
+  const unregister = h('button', { class: 'linkish quiet', type: 'button', onclick: async () => {
+    const ok = await askKioskPassword({ title: '학원 태블릿 등록 해제', message: '등록을 해제하려면 학원 태블릿 비밀번호를 입력해 주세요.', okText: '해제', danger: true });
+    if (ok) { await store.logout(); setKioskDevice(false); goManage(); }
+  } }, '학원 태블릿 등록 해제 (선생님용)');
+  form.append(h('div', { class: 'login-links' }, unregister));
+  shell(h('main', { class: 'login' },
+    h('section', { class: 'login-hero' },
+      h('div', { class: 'hero-logo' }, logo()),
+      h('div', { class: 'hero-text' }, h('div', { class: 'eyebrow' }, ACADEMY), h('h1', null, '기타 교재'))),
+    h('section', { class: 'login-panel' }, form)));
 }
 
 // ---------------- 학생 홈: 카테고리별 내 교재 ----------------
@@ -870,7 +873,7 @@ async function adminSettings() {
     h('section', { class: 'card' }, h('h3', null, '학원 태블릿'),
       h('p', { class: 'muted small' }, ks.exists
         ? '학원 태블릿 비밀번호가 설정되어 있습니다. 새로 만들면 기존에 등록한 태블릿은 모두 등록이 해제되니, 각 태블릿에서 새 비밀번호로 다시 등록해 주세요.'
-        : '비밀번호를 만든 뒤, 학원 태블릿에서 이 앱을 열고 로그인 화면 아래 \'학원 태블릿으로 등록\'을 눌러 이 비밀번호를 입력하세요.'),
+        : '비밀번호를 만든 뒤, 학원 태블릿에서 관리 주소(주소 끝에 ?manage)를 열고 \'이 기기를 학원 태블릿으로 등록\'을 눌러 이 비밀번호를 입력하세요.'),
       h('div', { class: 'row' }, pw, h('button', { class: 'btn primary', onclick: async (e) => {
         const btn = e.currentTarget;
         if (pw.value.length < 6) return toast('비밀번호는 6자 이상으로 해 주세요.', 'bad');
