@@ -186,7 +186,7 @@ export async function openReader(root, opts) {
     full = true; wrap.classList.add('full');
     const req = fsEl.requestFullscreen || fsEl.webkitRequestFullscreen;
     if (req) Promise.resolve(req.call(fsEl)).catch(() => {});
-    toast('가운데를 누르면 확대 버튼이 나와요 · 두 번 누르면 전체보기가 끝나요');
+    toast('화면 가운데를 한 번 누르면 전체보기가 끝나요');
   }
   function leaveFull() {
     full = false; wrap.classList.remove('full'); hideFullBar();
@@ -237,7 +237,8 @@ export async function openReader(root, opts) {
   // ---------- 확대 ----------
   const ZMIN = 1, ZMAX = 4;
   let zoom = 1;
-  let pendingFocus = null; // 확대 후에도 손가락 아래의 악보가 그 자리에 오도록
+  let pendingFocus = null;
+  let pendingEdge = null; // 확대 상태에서 끌어 넘겼을 때 새 쪽을 어느 쪽 끝에서 보여 줄지 // 확대 후에도 손가락 아래의 악보가 그 자리에 오도록
   const zoomSteps = [1, 1.25, 1.5, 2, 2.5, 3, 4];
   function paintZoom() {
     zoomLabel.textContent = fzLabel.textContent = `${Math.round(zoom * 100)}%`;
@@ -344,7 +345,7 @@ export async function openReader(root, opts) {
     })();
     cache.set(key, job);
     // 오래된 그림은 지운다 (아이패드는 캔버스 크기를 0으로 해야 메모리를 돌려준다)
-    while (cache.size > 8) {
+    while (cache.size > 12) {
       const oldKey = cache.keys().next().value;
       const old = cache.get(oldKey); cache.delete(oldKey);
       old.then((c) => { if (!c.isConnected) { c.width = 0; c.height = 0; } }).catch(() => {});
@@ -444,21 +445,34 @@ export async function openReader(root, opts) {
         const f = pendingFocus;
         stage.scrollLeft = spread.offsetLeft + f.rx * spread.offsetWidth - f.fx;
         stage.scrollTop = spread.offsetTop + f.ry * spread.offsetHeight - f.fy;
-      } else if (pageChanged) stage.scrollTop = 0;
+      } else if (pageChanged) {
+        stage.scrollTop = 0;
+        if (pendingEdge === 'left') stage.scrollLeft = 0;
+        else if (pendingEdge === 'right') stage.scrollLeft = stage.scrollWidth;
+      }
     }
     pendingFocus = null;
+    pendingEdge = null;
     if (zoom > 1) { scheduleDetail(0); return; }
-    // 다음·이전 쪽을 미리 그려 둔다 (확대하지 않았을 때만)
-    const ahead = visible(Math.min(n, pages[pages.length - 1] + 1));
-    const behind = visible(Math.max(1, pages[0] - 1));
-    setTimeout(() => { if (my === token) [...ahead, ...behind].forEach((p) => renderPage(p, bw0, bh0, 1).catch(() => {})); }, 120);
+    // 다음·이전 쪽을 미리 그려 둔다 (확대하지 않았을 때만).
+    // 넘기는 방향으로 두 번 넘길 만큼 먼저 그리고, 책장이 넘어가는 동안에는 그리지 않아 움직임이 끊기지 않게 한다
+    const after = (p) => visible(Math.min(n, visible(p).slice(-1)[0] + 1));
+    const before = (p) => visible(Math.max(1, visible(p)[0] - 1));
+    const a1 = after(pages[0]), a2 = after(a1[0]), b1 = before(pages[0]), b2 = before(b1[0]);
+    const order = (dir < 0 ? [b1, b2, a1] : [a1, a2, b1]).flat().filter((p) => !pages.includes(p));
+    setTimeout(async () => {
+      for (const p of [...new Set(order)]) {
+        if (my !== token) return;
+        await renderPage(p, bw0, bh0, 1).catch(() => {});
+      }
+    }, canTurn ? TURN_MS + 30 : 60);
   }
 
   // ---------- 책장 넘기기 ----------
   // 넘어가는 책장 한 장을 앞면·뒷면이 있는 판으로 만들어 책등을 축으로 돌린다.
   // 두 쪽 보기: 앞으로 넘기면 오른쪽 쪽이 들려 왼쪽으로 넘어가고, 그 뒷면이 새 왼쪽 쪽이 된다.
   // 한 쪽 보기: 앞으로 넘기면 지금 쪽이 왼쪽으로 넘어가며 아래의 새 쪽이 드러나고, 뒤로 넘기면 앞 쪽이 왼쪽에서 넘어와 덮는다.
-  const TURN_MS = 560;
+  const TURN_MS = 400;
   function settleTurn() {
     const t = turning;
     if (!t) return;
@@ -517,7 +531,7 @@ export async function openReader(root, opts) {
       leaf.style.transformOrigin = hingeRight ? `calc(100% + ${gap / 2}px) 50%` : `${-gap / 2}px 50%`;
     } else leaf.style.transformOrigin = '0 50%';
 
-    const ease = 'cubic-bezier(.4,.04,.22,1)';
+    const ease = 'cubic-bezier(.25,.55,.3,1)'; // 바로 움직이기 시작해 부드럽게 멈춘다
     const opt = { duration: TURN_MS, easing: ease, fill: 'both' };
     const startsFront = from === 0; // 처음에 보이는 면
     // 앞면·뒷면은 책장이 똑바로 선 순간(가운데)에 직접 바꿔 보여 준다 (브라우저의 뒷면 숨김은 끝 무렵에 깜빡일 수 있다)
@@ -555,14 +569,20 @@ export async function openReader(root, opts) {
   slider.oninput = () => { pageLabel.textContent = `${slider.value} / ${n}`; };
   slider.onchange = () => go(+slider.value);
 
-  // 넘기기: 화면 왼쪽·오른쪽 누르기, 밀기, 키보드. 전체보기에서는 가운데를 두 번 누르면 끝난다.
-  let down = null, lastCenterTap = 0;
+  // 넘기기: 화면 왼쪽·오른쪽 누르기, 밀기, 키보드. 전체보기에서는 가운데를 한 번 누르면 끝난다.
+  let down = null;
   stage.addEventListener('pointerdown', (e) => {
     if (!e.isPrimary || pinch) { down = null; return; }
-    down = { x: e.clientX, y: e.clientY, t: Date.now(), sl: stage.scrollLeft, st: stage.scrollTop, mouse: e.pointerType === 'mouse' };
+    down = { x: e.clientX, y: e.clientY, t: Date.now(), sl: stage.scrollLeft, st: stage.scrollTop, mouse: e.pointerType === 'mouse', edge: edgeState() };
   });
   stage.addEventListener('pointermove', (e) => {
-    if (!down || !down.mouse || zoom <= 1) return;
+    if (!down) return;
+    // 확대하지 않았을 때는 충분히 밀면 손가락을 떼기 전에 바로 넘긴다
+    if (zoom <= 1 && !down.done && !pinch) {
+      const dx = e.clientX - down.x, dy = e.clientY - down.y;
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.3) { down.done = true; dx < 0 ? next() : prev(); return; }
+    }
+    if (!down.mouse || zoom <= 1) return;
     stage.scrollLeft = down.sl - (e.clientX - down.x);
     stage.scrollTop = down.st - (e.clientY - down.y);
   });
@@ -570,20 +590,43 @@ export async function openReader(root, opts) {
   stage.addEventListener('pointerup', (e) => {
     if (!down || pinch || Date.now() - pinchEndAt < 350) { down = null; return; }
     const dx = e.clientX - down.x, dy = e.clientY - down.y, dt = Date.now() - down.t;
+    const d0 = down;
     down = null;
+    if (d0.done) return;
+    // 확대한 상태에서 마우스로 끌 때: 쪽 끝에서 시작해 더 끌면 넘긴다
+    if (zoom > 1 && d0.mouse && edgeTurn(d0.edge, dx, dy)) return;
     if (zoom <= 1 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.3) { dx < 0 ? next() : prev(); return; }
     if (dt < 400 && Math.abs(dx) < 12 && Math.abs(dy) < 12) {
       const r = stage.getBoundingClientRect();
       const fx = (e.clientX - r.left) / r.width;
       if (fx < 0.3) prev();
       else if (fx > 0.7) next();
-      else if (full) {
-        const now = Date.now();
-        if (now - lastCenterTap < 400) { lastCenterTap = 0; leaveFull(); }
-        else { lastCenterTap = now; fullBar.classList.contains('show') ? hideFullBar() : showFullBar(); }
-      }
+      else if (full) leaveFull();
     }
   });
+  // 굿노트처럼: 확대한 쪽을 끝까지 옮긴 뒤 같은 방향으로 한 번 더 끌면 다음(이전) 쪽으로 넘긴다
+  function edgeState() {
+    const max = stage.scrollWidth - stage.clientWidth;
+    return { left: stage.scrollLeft <= 2, right: stage.scrollLeft >= max - 2 };
+  }
+  function edgeTurn(edge, dx, dy) {
+    if (!edge || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.2) return false;
+    if (dx < 0 && edge.right && visible(page).slice(-1)[0] < n) { pendingEdge = 'left'; next(); return true; }
+    if (dx > 0 && edge.left && page > 1) { pendingEdge = 'right'; prev(); return true; }
+    return false;
+  }
+  let zdrag = null;
+  stage.addEventListener('touchstart', (e) => {
+    zdrag = zoom > 1 && e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, edge: edgeState() } : null;
+  }, { passive: true });
+  stage.addEventListener('touchend', (e) => {
+    const z = zdrag; zdrag = null;
+    if (!z || pinch || zoom <= 1 || e.touches.length) return;
+    const t = e.changedTouches[0];
+    edgeTurn(z.edge, t.clientX - z.x, t.clientY - z.y);
+  });
+  stage.addEventListener('touchcancel', () => { zdrag = null; });
+
   const onKey = (e) => {
     if (e.target.closest && e.target.closest('input, textarea')) return;
     if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); next(); }
@@ -611,10 +654,13 @@ export async function openReader(root, opts) {
 
     let body;
     if (tocTab === 'toc') {
+      const mp = markedPage();
+      const markP = mp ? tocEntryFor(book.toc, mp)?.p : null;
       body = toc.length
-        ? h('ol', { class: 'r-toc-list' }, toc.map((e) => h('li', null,
+        ? h('ol', { class: 'r-toc-list' }, toc.map((e) => h('li', { class: e.p === markP ? 'my-mark' : null },
           h('button', { 'data-p': e.p, onclick: () => { go(e.p); closeIfNarrow(); } },
-            h('span', null, e.t, likedSongs().has(e.t) ? h('span', { class: 'heart-mini' }, ' ♥') : null, hasInfo(e.t) ? h('span', { class: 'info-mini', title: '곡 정보 있음' }, ' ⓘ') : null), h('span', { class: 'muted' }, `${e.p}`)))))
+            h('span', null, e.t, likedSongs().has(e.t) ? h('span', { class: 'heart-mini' }, ' ♥') : null, hasInfo(e.t) ? h('span', { class: 'info-mini', title: '곡 정보 있음' }, ' ⓘ') : null,
+              e.p === markP ? h('span', { class: 'toc-mark' }, icon('bookmark'), '내 진도') : null), h('span', { class: 'muted' }, `${e.p}`)))))
         : h('p', { class: 'muted pad' }, '목차가 없는 교재입니다. 아래 막대로 쪽을 옮겨 주세요.');
     } else {
       const row = (song, right, below, onclick) => h('li', null, h('button', { onclick, disabled: !onclick },
@@ -690,14 +736,20 @@ export async function openReader(root, opts) {
     markLabel.textContent = on ? '내 진도' : '진도 저장';
     markBtn.title = on ? '지금 보이는 쪽이 내 진도예요' : '여기까지 연습했어요';
   }
+  // 누르자마자 화면에 반영하고 알린다. 서버 저장은 뒤에서 하고, 실패하면 되돌린다
   async function saveMark(p) {
     const bm = makeBookmark(book, p, n);
+    const prevEntry = entry;
     entry = { ...entry, bm };
-    updateSub(); buildToc(); paintMark();
+    paintMark();
+    toast(`진도를 저장했어요 · ${progressLabel(bm, book)}`, 'good');
+    requestAnimationFrame(() => { updateSub(); buildToc(); });
     try {
       await store.saveBookmark(opts.studentId, book.id, bm);
-      toast(`진도를 저장했어요 · ${progressLabel(bm, book)}`, 'good');
-    } catch { toast('진도를 저장하지 못했어요. 인터넷 연결을 확인해 주세요.', 'bad'); }
+    } catch {
+      if (entry.bm === bm) { entry = prevEntry; updateSub(); buildToc(); paintMark(); }
+      toast('진도를 저장하지 못했어요. 인터넷 연결을 확인하고 다시 눌러 주세요.', 'bad');
+    }
   }
   if (markBtn) markBtn.onclick = () => {
     const vis = visible(page), mp = markedPage();

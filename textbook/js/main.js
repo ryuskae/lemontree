@@ -25,6 +25,36 @@ async function boot() {
   window.addEventListener('hashchange', route);
   route();
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  watchUpdates();
+}
+
+// ---------------- 자동 업데이트 ----------------
+// 설치한 앱은 껐다 켜도 실제로는 메모리에 남아 있다가 다시 나타나는 경우가 많아서, 새 버전을 직접 확인한다.
+// 새 버전이 있으면 교재를 읽거나 글을 쓰는 중이 아닐 때 앱을 다시 불러온다.
+let updateReady = false;
+async function checkUpdate() {
+  if (updateReady || !navigator.onLine) return;
+  try {
+    const res = await fetch(`js/config.js?check=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const m = (await res.text()).match(/APP_VERSION\s*=\s*'([^']+)'/);
+    if (m && m[1] !== APP_VERSION) { updateReady = true; applyUpdate(); }
+  } catch { /* 인터넷이 안 되면 다음에 다시 확인 */ }
+}
+function applyUpdate() {
+  if (!updateReady || reader) return false;
+  if (document.querySelector('.sheet-back')) return false;
+  const a = document.activeElement;
+  if (a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && a.value) return false;
+  location.reload();
+  return true;
+}
+function watchUpdates() {
+  if (location.protocol !== 'https:') return;
+  setTimeout(checkUpdate, 4000);
+  setInterval(checkUpdate, 10 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
+  window.addEventListener('online', checkUpdate);
 }
 
 const isManageUrl = () => new URLSearchParams(location.search).has('manage');
@@ -34,6 +64,7 @@ const hashQuery = () => new URLSearchParams(location.hash.split('?')[1] || '');
 
 async function route() {
   if (reader) { const r = reader; reader = null; await r.exit(false); }
+  if (applyUpdate()) return;
   const parts = location.hash.replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean);
   session = store.currentSession();
   if (!session) return viewLogin();
