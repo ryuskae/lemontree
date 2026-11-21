@@ -422,13 +422,16 @@ export async function openReader(root, opts) {
     let canvases;
     try { canvases = await Promise.all(pages.map((p) => renderPage(p, bw0, bh0, zoom))); } catch { return; }
     if (my !== token) return;
-    clearDetail();
     settleTurn();
+    const old = shown;
+    // 확대한 채로 쪽이 바뀌면: 지금 보이는 화면을 떼어 내 책장처럼 넘긴다
+    const zdir = old && pageChanged && zoom > 1 && old.zoom === zoom && !pages.some((p) => old.pages.includes(p)) ? Math.sign(pages[0] - old.pages[0]) : 0;
+    const ghost = zdir ? makeGhost() : null;
+    clearDetail();
     const build = () => h('div', { class: 'r-spread' + (pages.length === 2 ? ' two' : '') },
       canvases.map((c) => h('div', { class: 'r-pagebox', style: { width: c.style.width, height: c.style.height } }, c)));
     stage.classList.toggle('zoomed', zoom > 1);
     // 쪽이 바뀌면 종이책처럼 책장을 넘긴다 (확대 중이거나 한 쪽↔두 쪽 모양이 달라지면 살짝 밀어 바꾼다)
-    const old = shown;
     const dir = old && pageChanged && zoom === 1 && old.zoom === 1 ? Math.sign(pages[0] - old.pages[0]) : 0;
     const canTurn = dir && old.canvases.length === canvases.length && !pages.some((p) => old.pages.includes(p)) && old.canvases.every((c) => c.isConnected);
     // 새 쪽 그림은 처음부터 제자리에 둔다. 넘어가는 책장은 그 위에 복사본으로 그렸다가 끝나면 걷어 낸다
@@ -453,7 +456,17 @@ export async function openReader(root, opts) {
     }
     pendingFocus = null;
     pendingEdge = null;
-    if (zoom > 1) { scheduleDetail(0); return; }
+    if (ghost) zoomTurn(ghost, spread, zdir);
+    if (zoom > 1) {
+      scheduleDetail(ghost ? TURN_MS + 30 : 0);
+      // 확대한 채로 넘길 때를 위해 넘기는 방향의 다음 쪽을 같은 배율로 미리 그려 둔다
+      const nx = zdir < 0 ? visible(Math.max(1, pages[0] - 1)) : visible(Math.min(n, pages[pages.length - 1] + 1));
+      const z0 = zoom;
+      setTimeout(async () => {
+        for (const p of nx.filter((q) => !pages.includes(q))) { if (my !== token) return; await renderPage(p, bw0, bh0, z0).catch(() => {}); }
+      }, TURN_MS + 250);
+      return;
+    }
     // 다음·이전 쪽을 미리 그려 둔다 (확대하지 않았을 때만).
     // 넘기는 방향으로 두 번 넘길 만큼 먼저 그리고, 책장이 넘어가는 동안에는 그리지 않아 움직임이 끊기지 않게 한다
     const after = (p) => visible(Math.min(n, visible(p).slice(-1)[0] + 1));
@@ -480,6 +493,55 @@ export async function openReader(root, opts) {
     t.anims.forEach((a) => { try { a.cancel(); } catch { /* 무시 */ } });
     t.done();
   }
+  // 확대 상태의 넘기기: 지금 화면에 보이는 부분을 떼어 낸 판(ghost)을 만든다
+  function makeGhost() {
+    const sp = stage.querySelector('.r-spread');
+    if (!sp || !document.body.animate) return null;
+    const main = stage.parentElement;
+    const sr = stage.getBoundingClientRect(), mr = main.getBoundingClientRect(), or = sp.getBoundingClientRect();
+    const cs = getComputedStyle(sp);
+    Object.assign(sp.style, { position: 'absolute', left: `${or.left - sr.left}px`, top: `${or.top - sr.top}px`, margin: '0', padding: cs.padding, width: `${or.width}px`, height: `${or.height}px`, boxSizing: 'border-box' });
+    const shade = h('div', { class: 'r-shade' });
+    const g = h('div', { class: 'r-ghost', style: { left: `${sr.left - mr.left}px`, top: `${sr.top - mr.top}px`, width: `${sr.width}px`, height: `${sr.height}px` } }, sp, shade);
+    main.append(g);
+    return g;
+  }
+  // 앞으로: 떼어 낸 옛 화면이 왼쪽 끝을 축으로 들려 넘어가며 새 쪽이 드러난다
+  // 뒤로: 옛 화면은 아래에 깔리고, 새 쪽이 왼쪽에서 넘어와 덮는다
+  function zoomTurn(g, spread, dir) {
+    const opt = { duration: TURN_MS, easing: 'cubic-bezier(.25,.55,.3,1)', fill: 'both' };
+    const shade = g.querySelector('.r-shade');
+    const H = stage.clientHeight;
+    shade.style.background = 'linear-gradient(to right, rgba(0,0,0,.45), rgba(0,0,0,.12) 50%, rgba(0,0,0,.04))';
+    let anims;
+    if (dir > 0) {
+      g.classList.add('top');
+      anims = [
+        g.animate([{ transform: 'perspective(1800px) rotateY(0deg)', opacity: 1 }, { opacity: 1, offset: 0.55 }, { transform: 'perspective(1800px) rotateY(-105deg)', opacity: 0 }],
+          opt),
+        shade.animate([{ opacity: 0 }, { opacity: 1 }], opt),
+      ];
+      g.style.transformOrigin = '0 50%';
+    } else {
+      g.classList.add('under');
+      const ox = stage.scrollLeft - spread.offsetLeft, oy = stage.scrollTop + H / 2 - spread.offsetTop;
+      const origin = `${ox}px ${oy}px`;
+      anims = [
+        spread.animate([
+          { transformOrigin: origin, transform: 'perspective(1800px) rotateY(-105deg)', opacity: 0 },
+          { transformOrigin: origin, opacity: 1, offset: 0.45 },
+          { transformOrigin: origin, transform: 'perspective(1800px) rotateY(0deg)', opacity: 1 }], opt),
+        shade.animate([{ opacity: 0 }, { opacity: 0.8 }], opt),
+      ];
+    }
+    const t = { anims, done: () => {
+      g.querySelectorAll('canvas.r-detail').forEach((c) => { c.width = 0; c.height = 0; });
+      g.remove();
+    } };
+    turning = t;
+    anims[0].onfinish = () => { if (turning === t) { turning = null; t.done(); } };
+  }
+
   // 쪽 그림의 복사본 (넘기는 동안만 쓰므로 해상도를 조금 낮춰 메모리를 아낀다)
   function snap(c) {
     const cssW = parseFloat(c.style.width) || c.width;
@@ -570,13 +632,15 @@ export async function openReader(root, opts) {
   slider.onchange = () => go(+slider.value);
 
   // 넘기기: 화면 왼쪽·오른쪽 누르기, 밀기, 키보드. 전체보기에서는 가운데를 한 번 누르면 끝난다.
-  let down = null;
+  let down = null, exitTimer = null;
   stage.addEventListener('pointerdown', (e) => {
     if (!e.isPrimary || pinch) { down = null; return; }
-    down = { x: e.clientX, y: e.clientY, t: Date.now(), sl: stage.scrollLeft, st: stage.scrollTop, mouse: e.pointerType === 'mouse', edge: edgeState() };
+    clearTimeout(exitTimer);
+    down = { x: e.clientX, y: e.clientY, t: Date.now(), sl: stage.scrollLeft, st: stage.scrollTop, mouse: e.pointerType === 'mouse', edge: edgeState(), moved: 0 };
   });
   stage.addEventListener('pointermove', (e) => {
     if (!down) return;
+    down.moved = Math.max(down.moved, Math.hypot(e.clientX - down.x, e.clientY - down.y));
     // 확대하지 않았을 때는 충분히 밀면 손가락을 떼기 전에 바로 넘긴다
     if (zoom <= 1 && !down.done && !pinch) {
       const dx = e.clientX - down.x, dy = e.clientY - down.y;
@@ -586,7 +650,8 @@ export async function openReader(root, opts) {
     stage.scrollLeft = down.sl - (e.clientX - down.x);
     stage.scrollTop = down.st - (e.clientY - down.y);
   });
-  stage.addEventListener('pointercancel', () => { down = null; });
+  stage.addEventListener('pointercancel', () => { down = null; clearTimeout(exitTimer); });
+  stage.addEventListener('touchstart', () => clearTimeout(exitTimer), { passive: true });
   stage.addEventListener('pointerup', (e) => {
     if (!down || pinch || Date.now() - pinchEndAt < 350) { down = null; return; }
     const dx = e.clientX - down.x, dy = e.clientY - down.y, dt = Date.now() - down.t;
@@ -596,12 +661,14 @@ export async function openReader(root, opts) {
     // 확대한 상태에서 마우스로 끌 때: 쪽 끝에서 시작해 더 끌면 넘긴다
     if (zoom > 1 && d0.mouse && edgeTurn(d0.edge, dx, dy)) return;
     if (zoom <= 1 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.3) { dx < 0 ? next() : prev(); return; }
-    if (dt < 400 && Math.abs(dx) < 12 && Math.abs(dy) < 12) {
+    // 누름: 손가락이 거의 움직이지 않고(8px 미만) 짧게 닿았을 때만
+    if (dt < 350 && d0.moved < 8 && Math.hypot(dx, dy) < 8) {
       const r = stage.getBoundingClientRect();
       const fx = (e.clientX - r.left) / r.width;
       if (fx < 0.3) prev();
       else if (fx > 0.7) next();
-      else if (full) leaveFull();
+      // 전체보기 끝내기는 잠깐 기다린다: 그사이 다시 닿으면(끌기·두 손가락) 끝내지 않는다
+      else if (full) exitTimer = setTimeout(() => { if (full && !pinch) leaveFull(); }, 220);
     }
   });
   // 굿노트처럼: 확대한 쪽을 끝까지 옮긴 뒤 같은 방향으로 한 번 더 끌면 다음(이전) 쪽으로 넘긴다

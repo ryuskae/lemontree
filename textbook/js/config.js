@@ -7,7 +7,7 @@
 // 개발용: localhost에서 열면 언제나 체험 모드로 동작합니다.
 const TEST_DEMO = typeof location !== 'undefined' && location.hostname === 'localhost';
 // 화면 아래에 보이는 앱 버전. 고칠 때마다 sw.js의 VERSION과 함께 올린다.
-export const APP_VERSION = '22';
+export const APP_VERSION = '23';
 export const config = {
   academyName: '레몬트리',
 

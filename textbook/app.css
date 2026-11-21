@@ -537,3 +537,10 @@ button, .tool, .seg, input[type=range] { touch-action: manipulation; }
   @media (max-width: 860px) { .r-tools .tool.keep { padding: 0 14px; } }
   @media (max-width: 640px) { .tool { min-height: 48px; min-width: 48px; padding: 0 10px; } .tool.mark { min-width: 0; } .r-tools { gap: 4px; } }
 }
+
+/* ---------- 확대 상태의 책장 넘기기 ---------- */
+.r-stage { z-index: 1; }
+.r-ghost { position: absolute; overflow: hidden; pointer-events: none; background: var(--stage); will-change: transform, opacity; }
+.r-ghost.top { z-index: 2; }
+.r-ghost.under { z-index: 0; }
+.reader.full .r-ghost { background: #fff; }
