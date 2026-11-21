@@ -186,7 +186,7 @@ export async function openReader(root, opts) {
     full = true; wrap.classList.add('full');
     const req = fsEl.requestFullscreen || fsEl.webkitRequestFullscreen;
     if (req) Promise.resolve(req.call(fsEl)).catch(() => {});
-    toast('화면 가운데를 한 번 누르면 전체보기가 끝나요');
+    toast('화면 왼쪽의 ✕ 버튼을 누르면 전체보기가 끝나요');
   }
   function leaveFull() {
     full = false; wrap.classList.remove('full'); hideFullBar();
@@ -670,7 +670,7 @@ export async function openReader(root, opts) {
   slider.oninput = () => { pageLabel.textContent = `${slider.value} / ${n}`; };
   slider.onchange = () => go(+slider.value);
 
-  // 넘기기: 화면 왼쪽·오른쪽 누르기, 밀기, 키보드. 전체보기에서는 가운데를 한 번 누르면 끝난다.
+  // 넘기기: 화면 왼쪽·오른쪽 누르기, 밀기, 키보드. 전체보기는 태블릿 화면 왼쪽의 ✕ 버튼(시스템)으로 끝낸다.
   let down = null, exitTimer = null, lastScrollAt = 0;
   // 화면에 닿아 있는 손가락들: 두 손가락 이상이 닿은 동작은 누름으로 보지 않는다
   const pointers = new Set();
@@ -715,10 +715,7 @@ export async function openReader(root, opts) {
       const fx = (e.clientX - r.left) / r.width;
       if (fx < 0.3) prev();
       else if (fx > 0.7) next();
-      // 전체보기 끝내기는 잠깐 기다린다: 그사이 다시 닿으면(끌기·두 손가락) 끝내지 않는다
-      else if (full && !d0.multi && Date.now() - lastScrollAt > 500 && Date.now() - lastTurnAt > 500 && !sliding) {
-        exitTimer = setTimeout(() => { if (full && !pinch && pointers.size === 0) leaveFull(); }, 250);
-      }
+
     }
   });
   // 마우스로 끌 때: 확대한 쪽을 끝까지 옮긴 뒤 같은 방향으로 한 번 더 끌면 다음(이전) 쪽으로 넘긴다

@@ -548,3 +548,4 @@ button, .tool, .seg, input[type=range] { touch-action: manipulation; }
 .r-blank { background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.12); }
 .reader.full .r-blank { box-shadow: none; }
 .r-peek canvas { display: block; }
+
