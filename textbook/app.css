@@ -207,7 +207,7 @@ select.input:disabled { background-color: var(--bg); }
 .r-banner.ok .icon-btn { color: #fff; }
 .r-banner-text { flex: 1; }
 .r-banner .linkish { padding: 0 2px; }
-.r-main { flex: 1; position: relative; display: flex; min-height: 0; }
+.r-main { flex: 1; position: relative; display: flex; min-height: 0; overflow: hidden; }
 .r-stage { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; outline: none; user-select: none; -webkit-user-select: none; }
 .r-spread { display: flex; gap: 4px; align-items: center; justify-content: center; }
 .r-page { background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.12); display: block; border-radius: 2px; }
@@ -374,8 +374,8 @@ select.input:disabled { background-color: var(--bg); }
 /* ---------- 확대 ---------- */
 .r-stage { position: relative; touch-action: pan-y; }
 .r-stage.zoomed { display: block; overflow: auto; touch-action: pan-x pan-y; -webkit-overflow-scrolling: touch; }
-.r-stage.zoomed .r-spread { width: max-content; margin: 0 auto; padding: 8px; }
-.reader.full .r-stage.zoomed .r-spread { padding: 0; }
+.r-stage.zoomed .r-spread { width: max-content; margin: 0 auto; padding: 8px 28px; }
+.reader.full .r-stage.zoomed .r-spread { padding: 0 24px; }
 .reader.full .r-stage { scrollbar-width: none; }
 .reader.full .r-stage::-webkit-scrollbar { display: none; }
 .r-spread { transform-origin: 0 0; will-change: auto; }
@@ -542,5 +542,9 @@ button, .tool, .seg, input[type=range] { touch-action: manipulation; }
 .r-stage { z-index: 1; }
 .r-ghost { position: absolute; overflow: hidden; pointer-events: none; background: var(--stage); will-change: transform, opacity; }
 .r-ghost.top { z-index: 2; }
-.r-ghost.under { z-index: 0; }
-.reader.full .r-ghost { background: #fff; }
+.reader.full .r-main:has(.r-stage.zoomed) { background: var(--stage); } /* 확대하면 쪽 사이 여백이 보이게 */
+/* 확대 상태에서 끌어 오는 옆 쪽 */
+.r-peek { position: absolute; z-index: 2; pointer-events: none; will-change: transform; }
+.r-blank { background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.12); }
+.reader.full .r-blank { box-shadow: none; }
+.r-peek canvas { display: block; }

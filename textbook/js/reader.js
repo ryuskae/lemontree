@@ -238,7 +238,8 @@ export async function openReader(root, opts) {
   const ZMIN = 1, ZMAX = 4;
   let zoom = 1;
   let pendingFocus = null;
-  let pendingEdge = null; // 확대 상태에서 끌어 넘겼을 때 새 쪽을 어느 쪽 끝에서 보여 줄지 // 확대 후에도 손가락 아래의 악보가 그 자리에 오도록
+  let dragTurn = false;   // 확대 상태에서 손가락으로 옆 쪽을 끌어 와 넘겼는지
+  let lastTurnAt = 0; // 확대 후에도 손가락 아래의 악보가 그 자리에 오도록
   const zoomSteps = [1, 1.25, 1.5, 2, 2.5, 3, 4];
   function paintZoom() {
     zoomLabel.textContent = fzLabel.textContent = `${Math.round(zoom * 100)}%`;
@@ -422,11 +423,13 @@ export async function openReader(root, opts) {
     let canvases;
     try { canvases = await Promise.all(pages.map((p) => renderPage(p, bw0, bh0, zoom))); } catch { return; }
     if (my !== token) return;
+    const prevTop = stage.scrollTop;
+    const viaDrag = dragTurn; dragTurn = false;
     settleTurn();
     const old = shown;
-    // 확대한 채로 쪽이 바뀌면: 지금 보이는 화면을 떼어 내 책장처럼 넘긴다
+    // 확대한 채로 쪽이 바뀌면 옆으로 밀려 바뀐다 (손가락으로 끌어 꺼낸 경우는 이미 옆 쪽이 들어와 있다)
     const zdir = old && pageChanged && zoom > 1 && old.zoom === zoom && !pages.some((p) => old.pages.includes(p)) ? Math.sign(pages[0] - old.pages[0]) : 0;
-    const ghost = zdir ? makeGhost() : null;
+    const ghost = zdir && !viaDrag ? makeGhost() : null;
     clearDetail();
     const build = () => h('div', { class: 'r-spread' + (pages.length === 2 ? ' two' : '') },
       canvases.map((c) => h('div', { class: 'r-pagebox', style: { width: c.style.width, height: c.style.height } }, c)));
@@ -441,22 +444,22 @@ export async function openReader(root, opts) {
     stage.replaceChildren(spread);
     if (canTurn) turnPage(spread, oldSnaps, canvases, dir);
     else if (dir && spread.animate) spread.animate([{ opacity: 0, transform: `translateX(${dir * 40}px)` }, { opacity: 1, transform: 'none' }], { duration: 240, easing: 'ease-out' });
-    shown = { pages, canvases, zoom };
+    shown = { pages, canvases, zoom, bw: bw0, bh: bh0 };
     shownPage = pages[0];
     if (zoom > 1) {
       if (pendingFocus) {
         const f = pendingFocus;
         stage.scrollLeft = spread.offsetLeft + f.rx * spread.offsetWidth - f.fx;
         stage.scrollTop = spread.offsetTop + f.ry * spread.offsetHeight - f.fy;
-      } else if (pageChanged) {
-        stage.scrollTop = 0;
-        if (pendingEdge === 'left') stage.scrollLeft = 0;
-        else if (pendingEdge === 'right') stage.scrollLeft = stage.scrollWidth;
-      }
+      } else if (pageChanged && zdir) {
+        // 다음 쪽은 왼쪽 끝부터, 이전 쪽은 오른쪽 끝부터 보여 주고 위아래 위치는 그대로 둔다
+        stage.scrollTop = prevTop;
+        stage.scrollLeft = zdir > 0 ? 0 : stage.scrollWidth;
+      } else if (pageChanged) stage.scrollTop = 0;
     }
     pendingFocus = null;
-    pendingEdge = null;
-    if (ghost) zoomTurn(ghost, spread, zdir);
+    if (pageChanged) lastTurnAt = Date.now();
+    if (ghost) zoomSlide(ghost, zdir);
     if (zoom > 1) {
       scheduleDetail(ghost ? TURN_MS + 30 : 0);
       // 확대한 채로 넘길 때를 위해 넘기는 방향의 다음 쪽을 같은 배율로 미리 그려 둔다
@@ -506,40 +509,76 @@ export async function openReader(root, opts) {
     main.append(g);
     return g;
   }
-  // 앞으로: 떼어 낸 옛 화면이 왼쪽 끝을 축으로 들려 넘어가며 새 쪽이 드러난다
-  // 뒤로: 옛 화면은 아래에 깔리고, 새 쪽이 왼쪽에서 넘어와 덮는다
-  function zoomTurn(g, spread, dir) {
-    const opt = { duration: TURN_MS, easing: 'cubic-bezier(.25,.55,.3,1)', fill: 'both' };
-    const shade = g.querySelector('.r-shade');
-    const H = stage.clientHeight;
-    shade.style.background = 'linear-gradient(to right, rgba(0,0,0,.45), rgba(0,0,0,.12) 50%, rgba(0,0,0,.04))';
-    let anims;
-    if (dir > 0) {
-      g.classList.add('top');
-      anims = [
-        g.animate([{ transform: 'perspective(1800px) rotateY(0deg)', opacity: 1 }, { opacity: 1, offset: 0.55 }, { transform: 'perspective(1800px) rotateY(-105deg)', opacity: 0 }],
-          opt),
-        shade.animate([{ opacity: 0 }, { opacity: 1 }], opt),
-      ];
-      g.style.transformOrigin = '0 50%';
-    } else {
-      g.classList.add('under');
-      const ox = stage.scrollLeft - spread.offsetLeft, oy = stage.scrollTop + H / 2 - spread.offsetTop;
-      const origin = `${ox}px ${oy}px`;
-      anims = [
-        spread.animate([
-          { transformOrigin: origin, transform: 'perspective(1800px) rotateY(-105deg)', opacity: 0 },
-          { transformOrigin: origin, opacity: 1, offset: 0.45 },
-          { transformOrigin: origin, transform: 'perspective(1800px) rotateY(0deg)', opacity: 1 }], opt),
-        shade.animate([{ opacity: 0 }, { opacity: 0.8 }], opt),
-      ];
-    }
+  // 탭·화살표로 넘길 때: 옛 화면이 옆으로 빠지고 새 쪽이 반대편에서 들어온다
+  function zoomSlide(g, dir) {
+    const W = stage.clientWidth + 24;
+    const opt = { duration: 300, easing: 'cubic-bezier(.2,.7,.3,1)' };
+    g.classList.add('top');
+    const anims = [
+      g.animate([{ transform: 'translateX(0)' }, { transform: `translateX(${-dir * W}px)` }], { ...opt, fill: 'forwards' }),
+      stage.animate([{ transform: `translateX(${dir * W}px)` }, { transform: 'translateX(0)' }], opt),
+    ];
     const t = { anims, done: () => {
       g.querySelectorAll('canvas.r-detail').forEach((c) => { c.width = 0; c.height = 0; });
       g.remove();
     } };
     turning = t;
-    anims[0].onfinish = () => { if (turning === t) { turning = null; t.done(); } };
+    anims[1].onfinish = () => { if (turning === t) { turning = null; t.anims[0].cancel(); t.done(); } };
+  }
+
+  // ---------- 확대 상태: 쪽 끝에서 한 번 더 끌면 옆 쪽이 손가락을 따라 들어온다 (굿노트 방식) ----------
+  // 지금 쪽과 옆 쪽 사이에는 여백(쪽 사이 공간)이 보인다. 충분히 끌고 놓으면 넘어가고, 조금만 끌면 제자리로 돌아간다.
+  function buildPeek(dirn) {
+    const sp = stage.querySelector('.r-spread');
+    if (!sp || !shown) return null;
+    const main = stage.parentElement;
+    const sr = stage.getBoundingClientRect(), mr = main.getBoundingClientRect(), cr = sp.getBoundingClientRect();
+    const cs = getComputedStyle(sp);
+    const vis = visible(page);
+    const target = dirn > 0 ? visible(Math.min(n, vis[vis.length - 1] + 1)) : visible(Math.max(1, vis[0] - 1));
+    const cur = [...sp.querySelectorAll('.r-pagebox')];
+    const boxes = target.map((_, i) => { const ref = cur[Math.min(i, cur.length - 1)]; return h('div', { class: 'r-pagebox r-blank', style: { width: ref.style.width, height: ref.style.height } }); });
+    const ps = h('div', { class: 'r-spread' + (target.length === 2 ? ' two' : ''), style: { position: 'absolute', top: `${cr.top - sr.top}px`, padding: cs.padding, boxSizing: 'border-box', margin: '0' } }, boxes);
+    const wrap = h('div', { class: 'r-peek', style: { left: `${sr.left - mr.left}px`, top: `${sr.top - mr.top}px`, width: `${sr.width}px`, height: `${sr.height}px` } }, ps);
+    main.append(wrap);
+    const W = sr.width, w = ps.offsetWidth;
+    const left0 = dirn > 0 ? cr.right - sr.left : cr.left - sr.left - w;
+    const finalLeft = w > W ? (dirn > 0 ? 0 : W - w) : (W - w) / 2;
+    ps.style.left = `${left0}px`;
+    const snaps = [];
+    target.forEach((p, i) => renderPage(p, shown.bw, shown.bh, zoom).then((c) => {
+      if (!wrap.isConnected) return;
+      const c2 = snap(c); snaps.push(c2);
+      Object.assign(boxes[i].style, { width: c.style.width, height: c.style.height });
+      boxes[i].append(c2);
+    }).catch(() => {}));
+    return { wrap, T: Math.abs(left0 - finalLeft), free: () => { snaps.forEach((c) => { c.width = 0; c.height = 0; }); wrap.remove(); } };
+  }
+  const setSlide = (o) => {
+    const x = `translateX(${-o.dirn * o.d}px)`;
+    stage.style.transform = x; o.peek.wrap.style.transform = x;
+  };
+  let od = null, sliding = false;
+  function finishSlide(o, go) {
+    sliding = true;
+    const to = go ? o.peek.T : 0;
+    const dur = Math.max(140, Math.min(320, Math.abs(to - o.d) * 0.9));
+    const kf = (d) => ({ transform: `translateX(${-o.dirn * d}px)` });
+    const opt = { duration: dur, easing: 'cubic-bezier(.2,.7,.3,1)', fill: 'forwards' };
+    const a1 = stage.animate([kf(o.d), kf(to)], opt), a2 = o.peek.wrap.animate([kf(o.d), kf(to)], opt);
+    stage.style.transform = ''; o.peek.wrap.style.transform = '';
+    a1.onfinish = () => {
+      sliding = false;
+      if (!go) { a1.cancel(); a2.cancel(); o.peek.free(); return; }
+      // 새 쪽이 제자리에 놓일 때까지 그대로 붙잡아 두었다가 한 번에 바꾼다
+      turning = { anims: [a1, a2], done: () => o.peek.free() };
+      dragTurn = true;
+      o.dirn > 0 ? next() : prev();
+    };
+  }
+  function cancelOverdrag() {
+    const o = od; od = null;
+    if (o?.active) finishSlide(o, false);
   }
 
   // 쪽 그림의 복사본 (넘기는 동안만 쓰므로 해상도를 조금 낮춰 메모리를 아낀다)
@@ -632,10 +671,18 @@ export async function openReader(root, opts) {
   slider.onchange = () => go(+slider.value);
 
   // 넘기기: 화면 왼쪽·오른쪽 누르기, 밀기, 키보드. 전체보기에서는 가운데를 한 번 누르면 끝난다.
-  let down = null, exitTimer = null;
+  let down = null, exitTimer = null, lastScrollAt = 0;
+  // 화면에 닿아 있는 손가락들: 두 손가락 이상이 닿은 동작은 누름으로 보지 않는다
+  const pointers = new Set();
+  stage.addEventListener('pointerdown', (e) => { pointers.add(e.pointerId); if (pointers.size > 1 && down) down.multi = true; }, true);
+  const dropPointer = (e) => pointers.delete(e.pointerId);
+  stage.addEventListener('pointerup', dropPointer, true);
+  stage.addEventListener('pointercancel', dropPointer, true);
+  stage.addEventListener('scroll', () => { lastScrollAt = Date.now(); clearTimeout(exitTimer); }, { passive: true });
   stage.addEventListener('pointerdown', (e) => {
     if (!e.isPrimary || pinch) { down = null; return; }
     clearTimeout(exitTimer);
+    if (pointers.size > 1) { down = null; return; }
     down = { x: e.clientX, y: e.clientY, t: Date.now(), sl: stage.scrollLeft, st: stage.scrollTop, mouse: e.pointerType === 'mouse', edge: edgeState(), moved: 0 };
   });
   stage.addEventListener('pointermove', (e) => {
@@ -652,6 +699,7 @@ export async function openReader(root, opts) {
   });
   stage.addEventListener('pointercancel', () => { down = null; clearTimeout(exitTimer); });
   stage.addEventListener('touchstart', () => clearTimeout(exitTimer), { passive: true });
+  stage.addEventListener('touchmove', () => clearTimeout(exitTimer), { passive: true });
   stage.addEventListener('pointerup', (e) => {
     if (!down || pinch || Date.now() - pinchEndAt < 350) { down = null; return; }
     const dx = e.clientX - down.x, dy = e.clientY - down.y, dt = Date.now() - down.t;
@@ -668,31 +716,60 @@ export async function openReader(root, opts) {
       if (fx < 0.3) prev();
       else if (fx > 0.7) next();
       // 전체보기 끝내기는 잠깐 기다린다: 그사이 다시 닿으면(끌기·두 손가락) 끝내지 않는다
-      else if (full) exitTimer = setTimeout(() => { if (full && !pinch) leaveFull(); }, 220);
+      else if (full && !d0.multi && Date.now() - lastScrollAt > 500 && Date.now() - lastTurnAt > 500 && !sliding) {
+        exitTimer = setTimeout(() => { if (full && !pinch && pointers.size === 0) leaveFull(); }, 250);
+      }
     }
   });
-  // 굿노트처럼: 확대한 쪽을 끝까지 옮긴 뒤 같은 방향으로 한 번 더 끌면 다음(이전) 쪽으로 넘긴다
+  // 마우스로 끌 때: 확대한 쪽을 끝까지 옮긴 뒤 같은 방향으로 한 번 더 끌면 다음(이전) 쪽으로 넘긴다
   function edgeState() {
     const max = stage.scrollWidth - stage.clientWidth;
     return { left: stage.scrollLeft <= 2, right: stage.scrollLeft >= max - 2 };
   }
   function edgeTurn(edge, dx, dy) {
     if (!edge || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.2) return false;
-    if (dx < 0 && edge.right && visible(page).slice(-1)[0] < n) { pendingEdge = 'left'; next(); return true; }
-    if (dx > 0 && edge.left && page > 1) { pendingEdge = 'right'; prev(); return true; }
+    if (dx < 0 && edge.right && visible(page).slice(-1)[0] < n) { next(); return true; }
+    if (dx > 0 && edge.left && page > 1) { prev(); return true; }
     return false;
   }
-  let zdrag = null;
   stage.addEventListener('touchstart', (e) => {
-    zdrag = zoom > 1 && e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, edge: edgeState() } : null;
+    if (od) cancelOverdrag();
+    if (zoom <= 1 || e.touches.length !== 1 || sliding || turning) return;
+    const edge = edgeState();
+    const canNext = visible(page).slice(-1)[0] < n, canPrev = page > 1;
+    if (!(edge.right && canNext) && !(edge.left && canPrev)) return;
+    od = { x: e.touches[0].clientX, y: e.touches[0].clientY, edge, canNext, canPrev, decided: false, active: false, d: 0, track: [] };
   }, { passive: true });
+  stage.addEventListener('touchmove', (e) => {
+    if (!od) return;
+    if (e.touches.length !== 1 || pinch) { cancelOverdrag(); return; }
+    const dx = e.touches[0].clientX - od.x, dy = e.touches[0].clientY - od.y;
+    if (!od.decided) {
+      // 방향이 정해질 때까지는 화면이 움직이지 않게 잡아 둔다
+      if (Math.hypot(dx, dy) < 8) { if (e.cancelable) e.preventDefault(); return; }
+      od.decided = true;
+      const horiz = Math.abs(dx) > Math.abs(dy) * 1.1;
+      const dirn = dx < 0 ? 1 : -1;
+      if (!horiz || !((dirn > 0 && od.edge.right && od.canNext) || (dirn < 0 && od.edge.left && od.canPrev)) || !e.cancelable) { od = null; return; }
+      od.peek = buildPeek(dirn);
+      if (!od.peek) { od = null; return; }
+      od.active = true; od.dirn = dirn; od.x0 = dx;
+    }
+    e.preventDefault();
+    od.d = Math.max(0, Math.min(od.peek.T, -od.dirn * dx));
+    const now = performance.now();
+    od.track.push([now, od.d]); while (od.track.length > 5) od.track.shift();
+    setSlide(od);
+  }, { passive: false });
   stage.addEventListener('touchend', (e) => {
-    const z = zdrag; zdrag = null;
-    if (!z || pinch || zoom <= 1 || e.touches.length) return;
-    const t = e.changedTouches[0];
-    edgeTurn(z.edge, t.clientX - z.x, t.clientY - z.y);
+    if (!od || e.touches.length) return;
+    const o = od; od = null;
+    if (!o.active) return;
+    const tr = o.track, v = tr.length > 1 ? (tr[tr.length - 1][1] - tr[0][1]) / Math.max(1, tr[tr.length - 1][0] - tr[0][0]) : 0;
+    const go = o.d > Math.min(180, o.peek.T * 0.3) || (v > 0.45 && o.d > 30);
+    finishSlide(o, go);
   });
-  stage.addEventListener('touchcancel', () => { zdrag = null; });
+  stage.addEventListener('touchcancel', () => cancelOverdrag());
 
   const onKey = (e) => {
     if (e.target.closest && e.target.closest('input, textarea')) return;
