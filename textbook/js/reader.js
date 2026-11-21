@@ -65,6 +65,8 @@ export async function openReader(root, opts) {
   const fzLabel = h('button', { class: 'zoom-label', title: '화면에 맞추기' }, '100%');
   const fzExit = h('button', { class: 'tool nav', 'aria-label': '전체보기 끝내기' }, icon('close'));
   const fullBar = h('div', { class: 'r-fullbar' }, fzOut, fzLabel, fzIn, h('span', { class: 'r-fullbar-sep' }), fzExit);
+  // 전체보기에서 항상 보이는 끝내기 버튼 (안드로이드 크롬에는 끝내기 버튼이 따로 없다)
+  const fullExit = h('button', { class: 'r-fullexit', 'aria-label': '전체보기 끝내기', title: '전체보기 끝내기', onclick: () => leaveFull() }, icon('close'));
 
   const wrap = h('div', { class: 'reader' },
     h('header', { class: 'r-top' },
@@ -74,7 +76,7 @@ export async function openReader(root, opts) {
         infoBtn, tocBtn, likesBtn,
         segment, fullBtn, addTocBtn, dlBtn, likeBtn, markBtn)),
     banner,
-    h('div', { class: 'r-main' }, stage, tocPanel, fullBar),
+    h('div', { class: 'r-main' }, stage, tocPanel, fullBar, fullExit),
     h('footer', { class: 'r-bottom' },
       h('button', { class: 'tool nav', 'aria-label': '이전 쪽', onclick: () => prev() }, icon('left')),
       slider, pageLabel,
@@ -182,11 +184,14 @@ export async function openReader(root, opts) {
 
   let full = false;
   const fsEl = document.documentElement;
+  // 아이패드 사파리의 전체화면은 화면을 아래로 쓸기만 해도 풀린다(사파리 동작이라 막을 수 없음).
+  // 그래서 아이패드에서는 브라우저 전체화면을 쓰지 않고 앱 안에서 위아래 막대만 숨긴다.
+  const IS_IPAD = /iPad/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
   function enterFull() {
     full = true; wrap.classList.add('full');
     const req = fsEl.requestFullscreen || fsEl.webkitRequestFullscreen;
-    if (req) Promise.resolve(req.call(fsEl)).catch(() => {});
-    toast('화면 왼쪽의 ✕ 버튼을 누르면 전체보기가 끝나요');
+    if (req && !IS_IPAD) Promise.resolve(req.call(fsEl)).catch(() => {});
+    toast('왼쪽 위의 ✕ 버튼을 누르면 전체보기가 끝나요');
   }
   function leaveFull() {
     full = false; wrap.classList.remove('full'); hideFullBar();
@@ -670,7 +675,7 @@ export async function openReader(root, opts) {
   slider.oninput = () => { pageLabel.textContent = `${slider.value} / ${n}`; };
   slider.onchange = () => go(+slider.value);
 
-  // 넘기기: 화면 왼쪽·오른쪽 누르기, 밀기, 키보드. 전체보기는 태블릿 화면 왼쪽의 ✕ 버튼(시스템)으로 끝낸다.
+  // 넘기기: 화면 왼쪽·오른쪽 누르기, 밀기, 키보드. 전체보기는 왼쪽 위 ✕ 버튼으로 끝낸다.
   let down = null, exitTimer = null, lastScrollAt = 0;
   // 화면에 닿아 있는 손가락들: 두 손가락 이상이 닿은 동작은 누름으로 보지 않는다
   const pointers = new Set();

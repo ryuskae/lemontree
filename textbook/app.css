@@ -549,3 +549,14 @@ button, .tool, .seg, input[type=range] { touch-action: manipulation; }
 .reader.full .r-blank { box-shadow: none; }
 .r-peek canvas { display: block; }
 
+
+/* 전체보기 끝내기 버튼: 전체보기에서만 왼쪽 위에 보인다 */
+.r-fullexit { display: none; }
+.reader.full .r-fullexit {
+  display: grid; place-items: center; position: absolute; z-index: 5;
+  top: calc(12px + env(safe-area-inset-top)); left: calc(12px + env(safe-area-inset-left));
+  width: 56px; height: 56px; border-radius: 50%; border: 0; padding: 0; cursor: pointer; touch-action: manipulation;
+  background: rgba(20,20,20,.55); color: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.25);
+}
+.reader.full .r-fullexit .ic { width: 28px; height: 28px; }
+.reader.full .r-fullexit:active { background: rgba(20,20,20,.85); }
