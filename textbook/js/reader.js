@@ -138,7 +138,7 @@ export async function openReader(root, opts) {
   // 목차가 고쳐져 쪽이 옮겨졌어도 곡 기준으로 저장하므로 같은 곡의 같은 쪽을 찾아간다.
   const entry = opts.entry || {};
   const spot = resolveBookmark(lastSpot(entry, book), book, n);
-  let start = spot && spot.page && spot.page <= n ? spot.page : 1;
+  let start = spot && spot.page ? Math.min(spot.page, n) : 1;
   const songStart = opts.startSong ? songPage(opts.startSong) : null;
   if (songStart) start = songStart;
 

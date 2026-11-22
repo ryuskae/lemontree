@@ -98,13 +98,20 @@ export function songAt(book, page, numPages) {
 
 // 학생이 이 교재에서 마지막으로 보던 곳. 교재를 닫을 때 저장한다.
 // (예전에 '진도 저장' 버튼으로 남긴 기록이 더 최근이면 그것을 쓴다)
+// 보던 곡이 목차에서 지워졌으면 저장해 둔 쪽 번호로 찾아가고, 그 쪽에 지금 있는 곡으로 표시한다.
 export function lastSpot(entry, book) {
   if (!entry) return null;
   const bm = entry.bm && entry.bm.page ? entry.bm : null;
-  if (entry.lastPage && (!bm || (entry.lastAt || 0) > (bm.savedAt || 0) + 5000)) {
-    return makeBookmark(book, entry.lastPage, book.numPages || bm?.numPages || entry.lastPage);
+  const n = book.numPages || bm?.numPages || entry.lastPage || 0;
+  let spot = bm;
+  if (entry.lastPage && (!bm || (entry.lastAt || 0) > (bm.savedAt || 0) + 5000)) spot = makeBookmark(book, entry.lastPage, n);
+  if (!spot) return null;
+  const gone = spot.tocTitle && !(book.toc || []).some((e) => e.t === spot.tocTitle);
+  if (gone) {
+    const p = Math.max(1, Math.min(entry.lastPage || spot.page, n || Infinity));
+    spot = makeBookmark(book, p, n || p);
   }
-  return bm;
+  return spot;
 }
 
 // 마지막으로 본 곳을 사람이 읽기 좋게: "할아버지의 낡은 시계 · 3/4쪽" (기록이 없으면 빈 글자)
