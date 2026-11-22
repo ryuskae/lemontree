@@ -7,7 +7,7 @@ import { editSongInfo } from './songinfo.js';
 import { driveMeta, loadPdf, clearPdfCache } from './pdfsource.js';
 import {
   normName, normBirth, isValidBirth, sortToc, makeBookmark, parseDriveId, fmtDate, fmtMinutes,
-  songAt, progressLabel, byOrder, dayStart, ymd,
+  songAt, progressLabel, spotLabel, lastSpot, byOrder, dayStart, ymd,
 } from './core.js';
 
 const app = $('#app');
@@ -238,21 +238,23 @@ async function viewStudentHome(sid, role) {
   // 지금 교재: 큰 카드
   const currentCard = (b) => {
     const p = prog[b.id] || {};
-    const total = p.bm?.numPages || b.numPages || 0;
-    const pct = p.bm && total ? Math.min(100, Math.round((p.bm.page / total) * 100)) : 0;
+    const spot = lastSpot(p, b);
+    const label = spotLabel(p, b);
+    const total = b.numPages || spot?.numPages || 0;
+    const pct = spot && total ? Math.min(100, Math.round((spot.page / total) * 100)) : 0;
     return h('button', { class: 'book-card current', onclick: () => nav(readHash(b.id)) },
       h('div', { class: 'book-top' }, h('span', { class: 'tag now' }, '지금 배우는 교재'), icon('chevron', 'book-chev')),
       h('div', { class: 'book-title' }, b.title),
-      h('div', { class: 'book-mark' }, p.bm ? progressLabel(p.bm, b) : '아직 저장한 진도가 없어요'),
-      total ? h('div', { class: 'bar' }, h('i', { style: { width: pct + '%' } })) : null,
+      label ? h('div', { class: 'book-mark' }, label) : null,
+      label && total ? h('div', { class: 'bar' }, h('i', { style: { width: pct + '%' } })) : null,
       p.lastAt ? h('div', { class: 'muted small' }, `마지막으로 본 날 · ${fmtDate(p.lastAt)}`) : null);
   };
   // 배운 교재: 지금 교재 아래에 최근 것부터 쌓인다 (맨 아래가 1권)
   const pastRow = (b) => {
-    const p = prog[b.id] || {};
+    const label = spotLabel(prog[b.id], b);
     return h('button', { class: 'past-book', onclick: () => nav(readHash(b.id)) },
       h('span', { class: 'past-main' }, h('span', { class: 'past-title' }, b.title),
-        h('span', { class: 'muted small' }, p.bm ? progressLabel(p.bm, b) : '저장한 진도 없음')),
+        label ? h('span', { class: 'muted small' }, label) : null),
       icon('chevron', 'book-chev'));
   };
 
@@ -340,7 +342,7 @@ async function viewAdmin(parts) {
 
 const sumSeconds = (sessions, sid) => sessions.filter((s) => s.sid === sid).reduce((a, s) => a + (s.seconds || 0), 0);
 
-// 학생의 카테고리별 진도를 한 줄로: "일렉기타 2권 · 연습곡 3"
+// 학생의 카테고리별 지금 교재와 마지막으로 본 곳을 한 줄로: "일렉기타 2권 · 연습곡 3"
 function trackLines(st, books, cats, prog) {
   const out = [];
   for (const c of cats) {
@@ -348,8 +350,8 @@ function trackLines(st, books, cats, prog) {
     if (!bid) continue;
     const b = books.find((x) => x.id === bid);
     if (!b) continue;
-    const bm = prog?.[bid]?.bm;
-    out.push(h('div', { class: 'track-line' }, h('span', { class: 'chip' }, c.name), h('strong', null, b.title), bm ? h('span', { class: 'muted' }, ` · ${progressLabel(bm, b)}`) : null));
+    const label = spotLabel(prog?.[bid], b);
+    out.push(h('div', { class: 'track-line' }, h('span', { class: 'chip' }, c.name), h('strong', null, b.title), label ? h('span', { class: 'muted' }, ` · ${label}`) : null));
   }
   return out.length ? out : [h('span', { class: 'muted' }, '배정된 교재 없음')];
 }
@@ -373,23 +375,22 @@ async function adminStudents() {
     h('section', { class: 'card flush' },
       students.length
         ? h('div', { class: 'table-wrap' }, h('table', { class: 'table clickable' },
-          h('thead', null, h('tr', null, ['이름', '교재와 진도', '마지막 접속', '최근 7일 연습', ''].map((t) => h('th', null, t)))),
+          h('thead', null, h('tr', null, ['이름', '교재 · 마지막으로 본 곳', '마지막 접속', '최근 7일 연습', ''].map((t) => h('th', null, t)))),
           h('tbody', null, rows)))
         : h('p', { class: 'muted pad' }, '아직 학생이 없어요.')));
 }
 
-// 카테고리별 '지금 교재'와 진도(곡)를 정하는 편집기
-function progressEditor(cats, books, tracks, prog) {
+// 카테고리별 '지금 교재'를 정하는 편집기
+// (지금 교재를 고르면 같은 카테고리의 앞 순서 교재도 학생에게 함께 보인다)
+function tracksEditor(cats, books, tracks) {
   const rows = [];
   const box = h('div', { class: 'prog-editor' });
   const addBtn = h('button', { class: 'btn ghost small', type: 'button', onclick: () => { addRow({}); paint(); } }, icon('plus'), '카테고리 추가');
 
-  function addRow(init) { rows.push({ cat: init.cat || '', book: init.book || '', song: init.song || '', songPage: init.songPage || 1 }); }
+  function addRow(init) { rows.push({ cat: init.cat || '', book: init.book || '' }); }
   for (const c of cats) {
     const bid = tracks?.[c.id];
-    if (!bid) continue;
-    const bm = prog?.[bid]?.bm;
-    addRow({ cat: c.id, book: bid, song: bm?.tocTitle || '', songPage: (bm?.offset || 0) + 1 });
+    if (bid) addRow({ cat: c.id, book: bid });
   }
   if (!rows.length) addRow({});
 
@@ -397,22 +398,12 @@ function progressEditor(cats, books, tracks, prog) {
   function paint() {
     box.replaceChildren(...rows.map((r, i) => {
       const used = new Set(rows.filter((x, k) => k !== i).map((x) => x.cat));
-      const catSel = h('select', { class: 'input', onchange: (e) => { r.cat = e.target.value; r.book = ''; r.song = ''; paint(); } },
+      const catSel = h('select', { class: 'input', onchange: (e) => { r.cat = e.target.value; r.book = ''; paint(); } },
         opt('', '카테고리 고르기', r.cat), cats.filter((c) => !used.has(c.id)).map((c) => opt(c.id, c.name, r.cat)));
       const inCat = books.filter((b) => b.categoryId === r.cat).sort(byOrder);
-      const bookSel = h('select', { class: 'input', disabled: !r.cat, onchange: (e) => { r.book = e.target.value; r.song = ''; paint(); } },
+      const bookSel = h('select', { class: 'input', disabled: !r.cat, onchange: (e) => { r.book = e.target.value; } },
         opt('', '교재 고르기', r.book), inCat.map((b) => opt(b.id, b.title, r.book)));
-      const book = books.find((b) => b.id === r.book);
-      const toc = book ? sortToc(book.toc) : [];
-      const songSel = h('select', { class: 'input', disabled: !toc.length, onchange: (e) => { r.song = e.target.value; r.songPage = 1; paint(); } },
-        opt('', toc.length ? '곡 (선택 안 함)' : (book ? '목차 없음' : '곡'), r.song), toc.map((e) => opt(e.t, e.t, r.song)));
-      let pageSel = null;
-      const s = book && r.song ? songAt(book, toc.find((e) => e.t === r.song)?.p || 1) : null;
-      if (s && s.span > 1) {
-        pageSel = h('select', { class: 'input narrow', onchange: (e) => { r.songPage = +e.target.value; } },
-          Array.from({ length: s.span }, (_, k) => h('option', { value: k + 1, selected: k + 1 === r.songPage }, `${k + 1}/${s.span}쪽`)));
-      }
-      return h('div', { class: 'prog-row' }, catSel, bookSel, songSel, pageSel || h('span'),
+      return h('div', { class: 'prog-row two' }, catSel, bookSel,
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': '이 줄 지우기', onclick: () => { rows.splice(i, 1); if (!rows.length) addRow({}); paint(); } }, icon('close')));
     }), addBtn);
   }
@@ -420,35 +411,22 @@ function progressEditor(cats, books, tracks, prog) {
   return {
     el: box,
     value() {
-      const out = { tracks: {}, marks: [] };
-      for (const r of rows) {
-        if (!r.cat || !r.book) continue;
-        out.tracks[r.cat] = r.book;
-        if (r.song) {
-          const b = books.find((x) => x.id === r.book);
-          const e = sortToc(b.toc).find((x) => x.t === r.song);
-          if (e) { const page = e.p + (r.songPage || 1) - 1; out.marks.push({ book: b, page }); }
-        }
-      }
+      const out = {};
+      for (const r of rows) if (r.cat && r.book) out[r.cat] = r.book;
       return out;
     },
   };
 }
 
-async function saveProgress(sid, editor) {
-  const v = editor.value();
-  await store.setTracks(sid, v.tracks);
-  for (const m of v.marks) {
-    const n = m.book.numPages || m.book.tocPages || m.page;
-    await store.saveBookmark(sid, m.book.id, makeBookmark(m.book, m.page, n));
-  }
+async function saveTracks(sid, editor) {
+  await store.setTracks(sid, editor.value());
 }
 
 async function adminNewStudent() {
   const [books, cats] = await Promise.all([store.listBooks(), store.listCategories()]);
   const name = h('input', { class: 'input', placeholder: '이름' });
   const birth = h('input', { class: 'input', placeholder: '생일 4자리 (예: 0315)', inputmode: 'numeric', maxlength: 4 });
-  const editor = progressEditor(cats, books, {}, {});
+  const editor = tracksEditor(cats, books, {});
   const save = h('button', { class: 'btn primary', onclick: async () => {
     const n = normName(name.value), b = normBirth(birth.value);
     if (!n) return toast('이름을 써 주세요.', 'bad');
@@ -456,7 +434,7 @@ async function adminNewStudent() {
     busy(save, true, '추가하는 중…');
     try {
       const id = await store.addStudent(n, b);
-      await saveProgress(id, editor);
+      await saveTracks(id, editor);
       toast(`학생을 추가했어요 · ${n}`, 'good');
       nav(`#/admin/student/${id}`);
     } catch (err) { toast(err.message, 'bad'); } finally { busy(save, false); }
@@ -466,8 +444,8 @@ async function adminNewStudent() {
     h('section', { class: 'card' }, h('h2', null, '학생 추가'),
       h('div', { class: 'form-grid' }, h('label', { class: 'field' }, h('span', null, '이름'), name), h('label', { class: 'field' }, h('span', null, '생일 4자리 (로그인 번호)'), birth)),
       h('p', { class: 'muted small' }, '같은 이름이 있으면 "민준B"처럼 구분해 주세요.')),
-    h('section', { class: 'card' }, h('h3', null, '교재와 진도'),
-      h('p', { class: 'muted small' }, '카테고리마다 지금 배우는 교재와 곡을 고르세요. 학생에게는 그 카테고리에서 지금 교재와 그 앞 교재만 보여요.'),
+    h('section', { class: 'card' }, h('h3', null, '교재'),
+      h('p', { class: 'muted small' }, '카테고리마다 지금 배우는 교재를 고르세요. 학생에게는 그 카테고리에서 지금 교재와 그 앞 교재가 모두 보여요.'),
       cats.length ? editor.el : h('p', { class: 'muted' }, '교재 탭에서 카테고리와 교재를 먼저 만들어 주세요.')),
     h('div', { class: 'row end' }, save));
   setTimeout(() => name.focus(), 50);
@@ -479,10 +457,10 @@ async function adminStudent(id) {
     store.getStudent(id), store.listBooks(), store.listCategories(), store.getProgress(id), store.getBirth(id),
     store.listSessions(since30), store.listLikes().catch(() => [])]);
   if (!st) return adminShell('students', h('p', { class: 'pad' }, '학생을 찾을 수 없어요.'));
-  const editor = progressEditor(cats, books, st.tracks || {}, prog);
+  const editor = tracksEditor(cats, books, st.tracks || {});
   const saveBtn = h('button', { class: 'btn primary', onclick: async () => {
-    busy(saveBtn, true); try { await saveProgress(id, editor); toast('진도를 저장했어요.', 'good'); adminStudent(id); } catch (e) { toast(e.message, 'bad'); } finally { busy(saveBtn, false); }
-  } }, '진도 저장');
+    busy(saveBtn, true); try { await saveTracks(id, editor); toast('교재를 저장했어요.', 'good'); adminStudent(id); } catch (e) { toast(e.message, 'bad'); } finally { busy(saveBtn, false); }
+  } }, '저장');
 
   const visibleBooks = books.filter((b) => (st.visible || []).includes(b.id));
   const myLikes = likes.filter((l) => l.sid === id);
@@ -505,12 +483,12 @@ async function adminStudent(id) {
         } }, birthVal ? '변경' : '저장')),
       noBirth,
       h('p', { class: 'muted small' }, `마지막 접속 ${fmtDate(st.lastSeen)} · 최근 30일 연습 ${fmtMinutes(sumSeconds(sessions, id))}`)),
-    h('section', { class: 'card' }, h('h3', null, '교재와 진도'),
-      h('p', { class: 'muted small' }, '카테고리마다 지금 배우는 교재와 곡을 정하세요. 학생은 진도 저장 버튼으로 직접 바꿀 수도 있어요.'),
+    h('section', { class: 'card' }, h('h3', null, '교재'),
+      h('p', { class: 'muted small' }, '카테고리마다 지금 배우는 교재를 고르세요. 학생에게는 그 카테고리에서 지금 교재와 그 앞 교재가 모두 보여요. 학생이 교재를 닫으면 보던 쪽이 저장되어 다음에 그 쪽부터 열려요.'),
       editor.el, h('div', { class: 'row end' }, saveBtn)),
     h('section', { class: 'card' }, h('h3', null, '학생에게 보이는 교재'),
       visibleBooks.length ? h('div', { class: 'mini-list' }, visibleBooks.map((b) => h('div', { class: 'mini-row' },
-        h('strong', null, b.title), h('span', { class: 'muted' }, prog[b.id]?.bm ? progressLabel(prog[b.id].bm, b) : '진도 없음')))) : h('p', { class: 'muted' }, '없음')),
+        h('strong', null, b.title), h('span', { class: 'muted' }, spotLabel(prog[b.id], b) || '아직 열어 보지 않았어요')))) : h('p', { class: 'muted' }, '없음')),
     h('section', { class: 'card' }, h('h3', null, `좋아요 ${myLikes.length}곡`),
       myLikes.length ? h('div', { class: 'chips' }, myLikes.map((l) => h('span', { class: 'chip heart' }, `♥ ${l.song}`))) : h('p', { class: 'muted' }, '아직 없어요.')),
     h('section', { class: 'card' }, h('h3', null, '최근 30일 기록'), sessionTable(sessions.filter((s) => s.sid === id), false)));
@@ -758,7 +736,7 @@ async function adminBook(id) {
   const renderWarn = () => {
     pagesNote.textContent = n ? `지금 교재 파일은 ${n}쪽입니다.` : '쪽수를 확인하는 중…';
     warn.replaceChildren(...[book.toc?.length && n && book.tocPages !== n
-      ? h('div', { class: 'notice warn' }, `교재 쪽수가 목차를 저장했을 때(${book.tocPages}쪽)와 달라졌습니다(지금 ${n}쪽). 쪽 번호를 확인한 뒤 '목차 저장'을 눌러 주세요. 저장하기 전까지 학생들에게는 진도 위치가 '확인 필요'로 표시됩니다.`)
+      ? h('div', { class: 'notice warn' }, `교재 쪽수가 목차를 저장했을 때(${book.tocPages}쪽)와 달라졌습니다(지금 ${n}쪽). 쪽 번호를 확인한 뒤 '목차 저장'을 눌러 주세요. 저장하기 전까지는 학생이 마지막으로 본 쪽이 조금 어긋나게 열릴 수 있어요.`)
       : null].filter(Boolean));
   };
   renderToc(); renderWarn();
@@ -802,7 +780,7 @@ async function adminBook(id) {
         toggle('coverSingle', '두 쪽 보기에서 1쪽(표지) 혼자 보이기', '책처럼 짝수 쪽이 왼쪽에 옵니다', '켜짐', '꺼짐'),
         toggle('downloadable', '학생 다운로드', '켜면 학생 교재 화면에 내려받기 버튼이 생겨요', '허용', '허용 안 함'))),
     h('section', { class: 'card' }, h('h3', null, '목차 (곡 목록)'),
-      h('p', { class: 'muted small' }, '곡마다 시작 쪽을 적어 주세요. 학생 진도와 좋아요는 이 곡 단위로 저장됩니다. 예를 들어 7쪽에서 시작해 10쪽까지 이어지는 곡의 9쪽을 저장하면 "곡 이름 · 3/4쪽"으로 기록돼요. 곡 사이에 새 곡을 넣을 때는 그 자리 바로 뒤 곡의 왼쪽 +를 누르면, 뒤의 곡들이 새 곡 쪽 수만큼 함께 밀려요. 곡을 뺄 때는 ×를 누르면 뒤의 곡들을 당길지 물어봐요. 곡 이름 옆 ⓘ 버튼으로 곡 정보(글과 사진)를 넣으면, 학생 교재 화면에 \'곡 정보\' 버튼이 생겨요.'),
+      h('p', { class: 'muted small' }, '곡마다 시작 쪽을 적어 주세요. 학생이 마지막으로 본 곳과 좋아요는 이 곡 단위로 저장됩니다. 예를 들어 7쪽에서 시작해 10쪽까지 이어지는 곡의 9쪽을 보다가 닫으면 "곡 이름 · 3/4쪽"으로 기록돼요. 곡 사이에 새 곡을 넣을 때는 그 자리 바로 뒤 곡의 왼쪽 +를 누르면, 뒤의 곡들이 새 곡 쪽 수만큼 함께 밀려요. 곡을 뺄 때는 ×를 누르면 뒤의 곡들을 당길지 물어봐요. 곡 이름 옆 ⓘ 버튼으로 곡 정보(글과 사진)를 넣으면, 학생 교재 화면에 \'곡 정보\' 버튼이 생겨요.'),
       warn, tocBox, dupNote,
       h('div', { class: 'row end' }, h('button', { class: 'btn primary', onclick: (e) => saveToc(e.currentTarget) }, '목차 저장'))),
     h('section', { class: 'card' }, h('h3', null, '파일 바꾸기 · 삭제'),
@@ -814,7 +792,7 @@ async function adminBook(id) {
         catch (err) { toast(err.message, 'bad'); } finally { busy(btn, false); }
       } }, '교체')),
       h('div', { class: 'row end' }, h('button', { class: 'btn danger', onclick: async () => {
-        if (await confirmBox(`이 교재를 삭제할까요? (${book.title}) 학생 진도 배정도 함께 풀리며, 드라이브 파일은 지워지지 않아요.`, { ok: '삭제', danger: true })) { await store.deleteBook(id); toast('삭제했어요.'); nav('#/admin/books'); }
+        if (await confirmBox(`이 교재를 삭제할까요? (${book.title}) 학생 교재 배정도 함께 풀리며, 드라이브 파일은 지워지지 않아요.`, { ok: '삭제', danger: true })) { await store.deleteBook(id); toast('삭제했어요.'); nav('#/admin/books'); }
       } }, '교재 삭제'))));
 
   if (!n) {

@@ -96,6 +96,22 @@ export function songAt(book, page, numPages) {
   return { title: toc[i].t, start, end, span: Math.max(1, end - start + 1), index: page - start + 1 };
 }
 
+// 학생이 이 교재에서 마지막으로 보던 곳. 교재를 닫을 때 저장한다.
+// (예전에 '진도 저장' 버튼으로 남긴 기록이 더 최근이면 그것을 쓴다)
+export function lastSpot(entry, book) {
+  if (!entry) return null;
+  const bm = entry.bm && entry.bm.page ? entry.bm : null;
+  if (entry.lastPage && (!bm || (entry.lastAt || 0) > (bm.savedAt || 0) + 5000)) {
+    return makeBookmark(book, entry.lastPage, book.numPages || bm?.numPages || entry.lastPage);
+  }
+  return bm;
+}
+
+// 마지막으로 본 곳을 사람이 읽기 좋게: "할아버지의 낡은 시계 · 3/4쪽" (기록이 없으면 빈 글자)
+export function spotLabel(entry, book) {
+  return progressLabel(lastSpot(entry, book), book);
+}
+
 // 진도를 사람이 읽기 좋게: "할아버지의 낡은 시계 · 3/4쪽"
 export function progressLabel(bm, book) {
   if (!bm || !bm.page) return '';

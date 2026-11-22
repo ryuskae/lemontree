@@ -315,7 +315,7 @@ export async function refreshVisibleAll() {
   }));
 }
 
-// 진도: progress/{학생} = { books: { 교재ID: { bm, lastPage, lastAt } } }
+// 마지막으로 본 쪽: progress/{학생} = { books: { 교재ID: { bm, lastPage, lastAt } } }
 export async function getProgress(sid) {
   const s = await getDoc(doc(db, 'progress', sid));
   return s.exists() ? s.data().books || {} : {};
@@ -329,8 +329,12 @@ export async function getAllProgress() {
 export async function saveBookmark(sid, bookId, bm) {
   await setDoc(doc(db, 'progress', sid), { books: { [bookId]: { bm } } }, { merge: true });
 }
-export async function saveLastPage(sid, bookId, page) {
-  await setDoc(doc(db, 'progress', sid), { books: { [bookId]: { lastPage: page, lastAt: Date.now() } } }, { merge: true });
+// 마지막으로 본 쪽 (bm은 곡 기준 위치: 목차가 바뀌어도 같은 곡을 찾아가도록)
+export async function saveLastPage(sid, bookId, page, bm) {
+  const now = Date.now();
+  const rec = { lastPage: page, lastAt: now };
+  if (bm) rec.bm = { ...bm, savedAt: now };
+  await setDoc(doc(db, 'progress', sid), { books: { [bookId]: rec } }, { merge: true });
 }
 
 // 기록

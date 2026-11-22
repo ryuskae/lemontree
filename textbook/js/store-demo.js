@@ -208,9 +208,10 @@ export async function saveBookmark(sid, bookId, bm) {
   db.progress[sid][bookId] = { ...(db.progress[sid][bookId] || {}), bm: clone(bm) };
   save();
 }
-export async function saveLastPage(sid, bookId, page) {
+export async function saveLastPage(sid, bookId, page, bm) {
   db.progress[sid] = db.progress[sid] || {};
-  db.progress[sid][bookId] = { ...(db.progress[sid][bookId] || {}), lastPage: page, lastAt: Date.now() };
+  const now = Date.now();
+  db.progress[sid][bookId] = { ...(db.progress[sid][bookId] || {}), lastPage: page, lastAt: now, ...(bm ? { bm: { ...clone(bm), savedAt: now } } : {}) };
   save();
 }
 

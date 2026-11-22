@@ -293,6 +293,7 @@ select.input:disabled { background-color: var(--bg); }
 .prog-editor { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; align-items: flex-start; }
 .prog-row { display: grid; grid-template-columns: 1fr 1.3fr 1.5fr auto 38px; gap: 8px; align-items: center; width: 100%; padding: 10px; background: var(--bg); border-radius: var(--r); }
 .prog-row > span:empty { width: 0; }
+.prog-row.two { grid-template-columns: 1fr 1.6fr 38px; }
 @media (max-width: 760px) { .prog-row { grid-template-columns: 1fr; } .prog-row > .icon-btn { justify-self: end; } }
 .mini-list { display: flex; flex-direction: column; }
 .mini-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
@@ -504,11 +505,6 @@ textarea { font: inherit; color: inherit; letter-spacing: inherit; }
 .r-cover > canvas, .r-face > canvas.r-snap { display: block; }
 .r-pagebox > .r-shade { z-index: 2; }
 .r-leaf { z-index: 3; }
-
-/* ---------- 목차의 내 진도 표시 ---------- */
-.r-toc-list li.my-mark button:not(.on) { background: var(--yellow-soft); }
-.toc-mark { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 8px 1px 6px; border-radius: 999px; background: var(--yellow); color: var(--ink); font-size: 12px; font-weight: 800; vertical-align: 1px; white-space: nowrap; }
-.toc-mark .ic { width: 13px; height: 13px; fill: var(--ink); }
 
 /* ---------- 손가락으로 누르기 쉽게 (태블릿·휴대폰) ---------- */
 button, .tool, .seg, input[type=range] { touch-action: manipulation; }
