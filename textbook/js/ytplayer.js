@@ -1,6 +1,8 @@
 // 곡 정보의 유튜브 영상
 // 유튜브 화면 안의 'YouTube에서 보기' 같은 버튼을 누르면 유튜브 앱이 열려 버리므로,
 // 영상 위를 투명한 막으로 덮어 누를 수 없게 하고 재생·멈춤·이동·속도·크게 보기는 앱의 버튼으로 한다.
+// 단, 재생을 눌렀는데 영상 시간이 흐르지 않을 때(광고, 불러오는 중, 기기가 재생을 막은 경우)는
+// 막을 걷어 광고의 '건너뛰기'나 유튜브 자체 재생 버튼을 직접 누를 수 있게 한다. 제목 줄만 계속 막는다.
 
 import { h, icon } from './ui.js';
 
@@ -47,9 +49,11 @@ export function youtubePlayer({ id, start = 0 }) {
   const canFull = !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
   const fsBtn = canFull ? h('button', { class: 'yt-btn', type: 'button', 'aria-label': '크게 보기', title: '크게 보기' }, icon('expand')) : null;
   const bar = h('div', { class: 'yt-bar' }, playBtn, seek, time, soundBtn, rateBtn, fsBtn);
-  const box = h('div', { class: 'yt' }, h('div', { class: 'yt-frame' }, slot, shield, msg), bar);
+  const guard = h('div', { class: 'yt-guard' });
+  const box = h('div', { class: 'yt' }, h('div', { class: 'yt-frame' }, slot, shield, guard, msg), bar);
 
-  let player = null, ready = false, state = -1, wantPlay = false, dragging = false, timer = null, startCheck = null, ri = 0;
+  let player = null, ready = false, state = -1, wantPlay = false, dragging = false, timer = null, ri = 0;
+  let requested = false, lastT = null, lastMove = 0;
   const playing = () => state === 1 || state === 3;
 
   function paint() {
@@ -60,27 +64,35 @@ export function youtubePlayer({ id, start = 0 }) {
     box.classList.toggle('is-playing', on);
     soundBtn.classList.toggle('hidden', !(ready && player.isMuted?.()));
   }
+  // 재생을 요청했는데 영상 시간이 1.2초 넘게 멈춰 있으면(멈춤·끝 상태 제외) 막을 걷는다
+  function updatePass() {
+    const pass = requested && state !== 2 && state !== 0 && Date.now() - lastMove > 1200;
+    box.classList.toggle('yt-pass', pass);
+  }
   function tick() {
     if (!box.isConnected) return destroy();
-    if (!ready || dragging) return;
+    if (!ready) return;
     const t = player.getCurrentTime?.() || 0, d = player.getDuration?.() || 0;
+    if (lastT !== null && Math.abs(t - lastT) > 0.01) lastMove = Date.now();
+    lastT = t;
+    updatePass();
+    if (dragging) return;
     if (d) { seek.max = Math.floor(d); seek.disabled = false; }
     seek.value = Math.floor(t);
     time.textContent = d ? `${fmt(t)} / ${fmt(d)}` : fmt(t);
   }
   function showMsg(text) { msg.textContent = text; msg.classList.remove('hidden'); bar.classList.add('hidden'); big.classList.add('hidden'); }
   function destroy() {
-    clearInterval(timer); clearTimeout(startCheck); io?.disconnect();
+    clearInterval(timer); io?.disconnect();
     try { player?.destroy(); } catch { /* 무시 */ }
     player = null; ready = false;
   }
 
   function play() {
     if (!ready) { wantPlay = true; create(); return; }
+    requested = true; lastMove = Date.now();
     player.playVideo();
-    // 기기가 소리 있는 재생을 막으면 소리를 끄고 재생한 뒤 '소리 켜기' 버튼을 보여 준다
-    clearTimeout(startCheck);
-    startCheck = setTimeout(() => { if (ready && !playing()) { player.mute(); player.playVideo(); setTimeout(paint, 300); } }, 1800);
+    // 영상이 바로 흐르지 않으면 updatePass가 막을 걷어, 광고 건너뛰기나 유튜브 재생 버튼을 직접 누르게 한다
   }
   const toggle = () => { if (playing()) player.pauseVideo(); else play(); };
   shield.addEventListener('click', (e) => { e.preventDefault(); toggle(); });
@@ -125,7 +137,7 @@ export function youtubePlayer({ id, start = 0 }) {
             timer = setInterval(tick, 250);
             if (wantPlay) { wantPlay = false; play(); }
           },
-          onStateChange: (e) => { state = e.data; if (playing()) clearTimeout(startCheck); paint(); tick(); },
+          onStateChange: (e) => { state = e.data; if (state === 1 || state === 3) requested = true; paint(); tick(); },
           onError: () => showMsg('이 영상은 교재 앱 안에서 재생할 수 없어요. 선생님께 알려 주세요.'),
         },
       });
