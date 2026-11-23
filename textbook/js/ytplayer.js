@@ -66,9 +66,12 @@ export function youtubePlayer({ id, start = 0 }) {
     box.classList.toggle('is-playing', on);
     soundBtn.classList.toggle('hidden', !(ready && player.isMuted?.()));
   }
-  // 재생을 요청했는데 영상 시간이 1.2초 넘게 멈춰 있으면(멈춤·끝 상태 제외) 막을 걷는다
+  // 재생을 요청한 뒤 유튜브가 '재생 중'이라고 알리지 않으면 광고·불러오는 중·재생 차단으로 보고 막을 걷는다.
+  // 광고 중에는 상태가 '시작 전'으로 남거나 시간이 광고 시간으로 흐르므로, 시간 흐름은 기준으로 쓰지 않는다.
+  // 앱에서 멈춘 상태(멈춤·끝)이면서 시간이 멈춰 있을 때만 막을 다시 덮는다.
   function updatePass() {
-    const pass = requested && state !== 2 && state !== 0 && Date.now() - lastMove > 1200;
+    const moving = Date.now() - lastMove < 700;
+    const pass = requested && state !== 1 && !((state === 2 || state === 0) && !moving);
     if (pass !== box.classList.contains('yt-pass')) { box.classList.toggle('yt-pass', pass); paint(); }
   }
   function tick() {
@@ -92,14 +95,14 @@ export function youtubePlayer({ id, start = 0 }) {
 
   function play() {
     if (!ready) { wantPlay = true; create(); return; }
-    requested = true; lastMove = Date.now();
+    requested = true;
     player.playVideo();
     // 영상이 바로 흐르지 않으면 updatePass가 막을 걷어, 광고 건너뛰기나 유튜브 재생 버튼을 직접 누르게 한다
   }
   const toggle = () => {
     if (!visiblyOn()) return play();
     if (ready) player.pauseVideo();
-    requested = false; updatePass(); paint();
+    setTimeout(() => { updatePass(); paint(); }, 400);
   };
   shield.addEventListener('click', (e) => { e.preventDefault(); toggle(); });
   shield.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
