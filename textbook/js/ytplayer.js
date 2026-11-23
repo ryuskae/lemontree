@@ -36,6 +36,14 @@ const fmt = (s) => {
 
 const RATES = [1, 0.75, 0.5];
 
+// 점검용: 재생 시간 글자를 빠르게 5번 누르면 유튜브가 알려 주는 상태 번호가 함께 보인다(다시 5번 누르면 꺼짐)
+const debugOn = () => { try { return localStorage.getItem('lt-ytdebug') === '1'; } catch { return false; } };
+let taps = [];
+function debugTap() {
+  const now = Date.now(); taps = taps.filter((x) => now - x < 2000); taps.push(now);
+  if (taps.length >= 5) { taps = []; try { localStorage.setItem('lt-ytdebug', debugOn() ? '0' : '1'); } catch { /* 무시 */ } }
+}
+
 export function youtubePlayer({ id, start = 0 }) {
   const slot = h('div', { class: 'yt-slot' });
   const big = h('span', { class: 'yt-big' }, svg(ICON_PLAY));
@@ -45,6 +53,7 @@ export function youtubePlayer({ id, start = 0 }) {
   const seek = h('input', { type: 'range', class: 'yt-seek', min: 0, max: 1, step: 1, value: 0, 'aria-label': '재생 위치', disabled: true });
   const time = h('span', { class: 'yt-time' }, '0:00');
   const soundBtn = h('button', { class: 'yt-btn yt-sound hidden', type: 'button', 'aria-label': '소리 켜기' }, svg(ICON_MUTED), h('span', null, '소리 켜기'));
+  time.addEventListener('click', debugTap);
   const rateBtn = h('button', { class: 'yt-btn yt-rate', type: 'button', 'aria-label': '재생 속도', title: '재생 속도' }, '1×');
   const canFull = !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
   const fsBtn = canFull ? h('button', { class: 'yt-btn', type: 'button', 'aria-label': '크게 보기', title: '크게 보기' }, icon('expand')) : null;
@@ -53,7 +62,8 @@ export function youtubePlayer({ id, start = 0 }) {
   const box = h('div', { class: 'yt' }, h('div', { class: 'yt-frame' }, slot, shield, guard, msg), bar);
 
   let player = null, ready = false, state = -1, wantPlay = false, dragging = false, timer = null, ri = 0;
-  let requested = false, lastT = null, lastMove = 0;
+  let requested = false;
+  const log = [];
   const playing = () => state === 1 || state === 3;
 
   // 광고가 나오는 동안은 유튜브가 '재생 중'이라고 알려 주지 않으므로, 막을 걷은 상태도 재생 중으로 본다
@@ -67,24 +77,21 @@ export function youtubePlayer({ id, start = 0 }) {
     soundBtn.classList.toggle('hidden', !(ready && player.isMuted?.()));
   }
   // 재생을 요청한 뒤 유튜브가 '재생 중'이라고 알리지 않으면 광고·불러오는 중·재생 차단으로 보고 막을 걷는다.
-  // 광고 중에는 상태가 '시작 전'으로 남거나 시간이 광고 시간으로 흐르므로, 시간 흐름은 기준으로 쓰지 않는다.
-  // 앱에서 멈춘 상태(멈춤·끝)이면서 시간이 멈춰 있을 때만 막을 다시 덮는다.
+  // 광고 중에는 본 영상이 '멈춤'으로 보고되기도 하므로, 멈춤은 앱의 버튼으로 멈췄을 때(requested=false)만 인정한다.
   function updatePass() {
-    const moving = Date.now() - lastMove < 700;
-    const pass = requested && state !== 1 && !((state === 2 || state === 0) && !moving);
+    const pass = requested && state !== 1 && state !== 0;
     if (pass !== box.classList.contains('yt-pass')) { box.classList.toggle('yt-pass', pass); paint(); }
   }
   function tick() {
     if (!box.isConnected) return destroy();
     if (!ready) return;
     const t = player.getCurrentTime?.() || 0, d = player.getDuration?.() || 0;
-    if (lastT !== null && Math.abs(t - lastT) > 0.01) lastMove = Date.now();
-    lastT = t;
     updatePass();
     if (dragging) return;
     if (d) { seek.max = Math.floor(d); seek.disabled = false; }
     seek.value = Math.floor(t);
-    time.textContent = d ? `${fmt(t)} / ${fmt(d)}` : fmt(t);
+    const dbg = debugOn() ? ` [${state}|${requested ? 1 : 0}|${log.join(',')}]` : '';
+    time.textContent = (box.classList.contains('yt-pass') ? '광고·준비 중' : (d ? `${fmt(t)} / ${fmt(d)}` : fmt(t))) + dbg;
   }
   function showMsg(text) { msg.textContent = text; msg.classList.remove('hidden'); bar.classList.add('hidden'); big.classList.add('hidden'); }
   function destroy() {
@@ -102,7 +109,7 @@ export function youtubePlayer({ id, start = 0 }) {
   const toggle = () => {
     if (!visiblyOn()) return play();
     if (ready) player.pauseVideo();
-    setTimeout(() => { updatePass(); paint(); }, 400);
+    requested = false; updatePass(); paint();
   };
   shield.addEventListener('click', (e) => { e.preventDefault(); toggle(); });
   shield.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
@@ -146,7 +153,13 @@ export function youtubePlayer({ id, start = 0 }) {
             timer = setInterval(tick, 250);
             if (wantPlay) { wantPlay = false; play(); }
           },
-          onStateChange: (e) => { state = e.data; if (state === 1 || state === 3) requested = true; paint(); tick(); },
+          onStateChange: (e) => {
+            state = e.data;
+            if (state === 1) requested = true;
+            if (state === 0) requested = false;
+            log.push(state); if (log.length > 8) log.shift();
+            paint(); tick();
+          },
           onError: () => showMsg('이 영상은 교재 앱 안에서 재생할 수 없어요. 선생님께 알려 주세요.'),
         },
       });
