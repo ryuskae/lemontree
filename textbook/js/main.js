@@ -650,7 +650,10 @@ async function adminBook(id) {
     const end = later.length ? Math.min(...later) - 1 : (n || +e.p);
     return Math.max(1, end - +e.p + 1);
   };
-  const unsaved = () => toast('목차 저장을 눌러야 학생들에게 반영돼요.');
+  // 목차는 고칠 때마다 저장한다 (이름·쪽 번호 칸에서 엔터를 치거나 다른 칸으로 옮겨 가면 저장)
+  const saveState = h('p', { class: 'muted small toc-status' });
+  let saving = Promise.resolve();
+  const queueSave = () => (saving = saving.then(() => saveToc()).catch(() => {}));
 
   // 이 곡 앞에 새 곡을 넣고, 이 곡부터 뒤의 곡들을 새 곡 쪽 수만큼 뒤로 민다
   const insertBefore = (e) => sheet((body, close) => {
@@ -671,7 +674,7 @@ async function adminBook(id) {
         toc.forEach((x) => { if (+x.p >= P) x.p = +x.p + k; });
         toc.push({ t, p: P });
         toc = sortToc(toc).map((x) => ({ ...x }));
-        close(); renderToc(); unsaved();
+        close(); renderToc(); queueSave();
       } }, '넣기')));
     setTimeout(() => name.focus(), 50);
   }, { title: '이 곡 앞에 곡 넣기' });
@@ -690,24 +693,36 @@ async function adminBook(id) {
       }, { title: '곡 빼기' });
       if (!ans) return;
       pull = ans === 'pull';
-    }
+    } else if (!(await confirmBox(`"${e.t || '이 곡'}"을 목차에서 뺄까요?`, { ok: '빼기', danger: true }))) return;
     const P = +e.p;
     toc = toc.filter((x) => x !== e);
     if (pull) toc.forEach((x) => { if (+x.p > P) x.p = +x.p - span; });
-    renderToc(); unsaved();
+    renderToc(); queueSave();
   };
 
+  const hasInfoRow = (e) => (book.infoSongs || []).includes(e.orig) && e.orig === (e.t || '').trim();
+  const paintInfoBtns = () => tocBox.querySelectorAll('.toc-row').forEach((row, i) => row.querySelector('.info-edit')?.classList.toggle('has', !!toc[i] && hasInfoRow(toc[i])));
+  // 엔터: 저장하고 다음 곡의 같은 칸으로 옮겨 간다 (마지막 곡이면 칸을 빠져나온다)
+  function enterSaves(ev) {
+    if (ev.key !== 'Enter' || ev.isComposing) return;
+    ev.preventDefault();
+    const row = ev.target.closest('.toc-row');
+    const sel = ev.target.type === 'number' ? 'input[type=number]' : 'input:not([type=number])';
+    const next = row?.nextElementSibling?.classList.contains('toc-row') ? row.nextElementSibling.querySelector(sel) : null;
+    if (next) next.focus(); else ev.target.blur();
+  }
   const renderToc = () => {
     tocBox.replaceChildren(
       ...toc.map((e) => h('div', { class: 'toc-row' },
         h('button', { class: 'icon-btn insert', title: '이 곡 앞에 곡 넣기', 'aria-label': '이 곡 앞에 곡 넣기', onclick: () => insertBefore(e) }, icon('plus')),
-        h('input', { class: 'input', value: e.t, placeholder: '곡 이름', oninput: (ev) => { e.t = ev.target.value; paintDupes(); } }),
-        h('button', { class: 'icon-btn info-edit' + ((book.infoSongs || []).includes(e.orig) && e.orig === (e.t || '').trim() ? ' has' : ''), title: '곡 정보', 'aria-label': '곡 정보', onclick: () => {
+        h('input', { class: 'input', value: e.t, placeholder: '곡 이름', enterkeyhint: 'done', oninput: (ev) => { e.t = ev.target.value; paintDupes(); }, onchange: queueSave, onkeydown: enterSaves }),
+        h('button', { class: 'icon-btn info-edit' + (hasInfoRow(e) ? ' has' : ''), title: '곡 정보', 'aria-label': '곡 정보', onclick: async () => {
+          await saving; // 방금 고친 이름이 저장되기를 기다린다
           const t = (e.t || '').trim();
-          if (!e.orig || e.orig !== t) return toast('이 곡은 아직 목차에 저장되지 않았어요. 목차 저장을 먼저 눌러 주세요.', 'bad');
+          if (!e.orig || e.orig !== t) return toast('이 곡 이름이 아직 저장되지 않았어요. 아래 안내를 확인해 주세요.', 'bad');
           editSongInfo({ store, book, song: t, onSaved: (infoSongs) => { book = { ...book, infoSongs }; renderToc(); } });
         } }, icon('info')),
-        h('input', { class: 'input narrow', type: 'number', min: 1, value: e.p, 'aria-label': '시작 쪽', oninput: (ev) => { e.p = +ev.target.value; paintSpans(); } }),
+        h('input', { class: 'input narrow', type: 'number', min: 1, value: e.p, 'aria-label': '시작 쪽', enterkeyhint: 'done', oninput: (ev) => { e.p = +ev.target.value; paintSpans(); }, onchange: queueSave, onkeydown: enterSaves }),
         h('span', { class: 'toc-span muted small', 'data-span': '' }),
         h('button', { class: 'icon-btn', 'aria-label': '삭제', onclick: () => removeSong(e) }, icon('close')))),
       h('button', { class: 'btn ghost small', onclick: () => { toc.push({ t: '', p: Math.min(n || 9999, (toc.length ? Math.max(...toc.map((x) => +x.p)) : 0) + 1) }); renderToc(); tocBox.querySelector('.toc-row:last-of-type input:not([type=number])')?.focus(); } }, icon('plus'), '맨 뒤에 곡 추가'));
@@ -736,31 +751,39 @@ async function adminBook(id) {
   const renderWarn = () => {
     pagesNote.textContent = n ? `지금 교재 파일은 ${n}쪽입니다.` : '쪽수를 확인하는 중…';
     warn.replaceChildren(...[book.toc?.length && n && book.tocPages !== n
-      ? h('div', { class: 'notice warn' }, `교재 쪽수가 목차를 저장했을 때(${book.tocPages}쪽)와 달라졌습니다(지금 ${n}쪽). 쪽 번호를 확인한 뒤 '목차 저장'을 눌러 주세요. 저장하기 전까지는 학생이 마지막으로 본 쪽이 조금 어긋나게 열릴 수 있어요.`)
+      ? h('div', { class: 'notice warn' }, `교재 쪽수가 목차를 저장했을 때(${book.tocPages}쪽)와 달라졌습니다(지금 ${n}쪽). 쪽 번호를 확인해서 고치거나, 고칠 것이 없으면 '확인했어요'를 눌러 주세요. 그 전까지는 학생이 마지막으로 본 쪽이 조금 어긋나게 열릴 수 있어요. `,
+        h('button', { class: 'btn small', onclick: () => queueSave() }, '확인했어요'))
       : null].filter(Boolean));
   };
   renderToc(); renderWarn();
 
-  const saveToc = async (btn) => {
+  // 저장할 수 없는 상태면 이유를 목차 아래에 적어 두고, 고치면 다시 저장한다
+  const saveToc = async () => {
     const clean = sortToc(toc.map((e) => ({ t: (e.t || '').trim(), p: +e.p })));
-    if (n && clean.some((e) => e.p > n)) return toast(`쪽 번호는 ${n}쪽 이하여야 해요. 굿노트 백업이 아직 드라이브에 올라가지 않았다면 잠시 뒤 이 화면을 다시 열어 주세요.`, 'bad');
+    const fail = (msg) => { saveState.textContent = `저장 안 됨 · ${msg}`; saveState.classList.add('bad-text'); };
+    if (clean.some((e) => !e.t)) return fail('이름이 비어 있는 곡이 있어요.');
+    if (clean.some((e) => !(e.p >= 1))) return fail('쪽 번호가 비어 있는 곡이 있어요.');
+    if (n && clean.some((e) => e.p > n)) return fail(`쪽 번호는 ${n}쪽 이하여야 해요. 굿노트 백업이 아직 드라이브에 올라가지 않았다면 잠시 뒤 이 화면을 다시 열어 주세요.`);
     const dupes = paintDupes();
-    if (dupes.length) {
-      tocBox.querySelector('input.dup')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      return toast(`이름이 같은 곡이 있어요 · ${dupes.map(([t]) => t).join(', ')}`, 'bad');
-    }
-    if (clean.some((e) => !e.t)) return toast('이름이 비어 있는 곡이 있어요.', 'bad');
-    busy(btn, true);
-    // 이름이 바뀐 곡의 곡 정보를 새 이름으로 옮긴다
-    for (const e of toc) {
-      const t = (e.t || '').trim();
-      if (e.orig && e.orig !== t && (book.infoSongs || []).includes(e.orig)) {
-        try { book = { ...book, infoSongs: await store.renameSongInfo(book, e.orig, t) }; } catch { /* 곡 정보는 옛 이름에 남는다 */ }
+    if (dupes.length) return fail(`이름이 같은 곡이 있어요 · ${dupes.map(([t]) => t).join(', ')}`);
+    const same = JSON.stringify(clean) === JSON.stringify(sortToc(book.toc || []).map((e) => ({ t: e.t, p: +e.p })));
+    if (same && book.tocPages === n) { saveState.textContent = '저장됨'; saveState.classList.remove('bad-text'); return; }
+    saveState.textContent = '저장하는 중…'; saveState.classList.remove('bad-text');
+    try {
+      // 이름이 바뀐 곡의 곡 정보를 새 이름으로 옮긴다
+      for (const e of toc) {
+        const t = (e.t || '').trim();
+        if (e.orig && e.orig !== t && (book.infoSongs || []).includes(e.orig)) {
+          try { book = { ...book, infoSongs: await store.renameSongInfo(book, e.orig, t) }; } catch { /* 곡 정보는 옛 이름에 남는다 */ }
+        }
       }
-    }
-    await store.updateBook(id, { toc: clean, tocPages: n });
-    book = { ...book, toc: clean, tocPages: n }; toc = clean.map((e) => ({ ...e, orig: e.t }));
-    renderToc(); renderWarn(); busy(btn, false); toast('목차를 저장했어요.', 'good');
+      await store.updateBook(id, { toc: clean, tocPages: n });
+    } catch { return fail('인터넷 연결을 확인해 주세요. 고친 칸에서 다시 엔터를 치면 저장돼요.'); }
+    book = { ...book, toc: clean, tocPages: n };
+    // 입력 칸은 그대로 두고(쓰던 칸이 사라지지 않게) 저장된 이름만 적어 둔다
+    toc.forEach((e) => { e.t = (e.t || '').trim(); e.orig = e.t; });
+    paintInfoBtns(); renderWarn();
+    saveState.textContent = '저장됨'; saveState.classList.remove('bad-text');
   };
 
   const toggle = (key, label, help, onText, offText) => toggleSwitch({ checked: !!book[key], label, help, onText, offText,
@@ -780,9 +803,8 @@ async function adminBook(id) {
         toggle('coverSingle', '두 쪽 보기에서 1쪽(표지) 혼자 보이기', '책처럼 짝수 쪽이 왼쪽에 옵니다', '켜짐', '꺼짐'),
         toggle('downloadable', '학생 다운로드', '켜면 학생 교재 화면에 내려받기 버튼이 생겨요', '허용', '허용 안 함'))),
     h('section', { class: 'card' }, h('h3', null, '목차 (곡 목록)'),
-      h('p', { class: 'muted small' }, '곡마다 시작 쪽을 적어 주세요. 학생이 마지막으로 본 곳과 좋아요는 이 곡 단위로 저장됩니다. 예를 들어 7쪽에서 시작해 10쪽까지 이어지는 곡의 9쪽을 보다가 닫으면 "곡 이름 · 3/4쪽"으로 기록돼요. 곡 사이에 새 곡을 넣을 때는 그 자리 바로 뒤 곡의 왼쪽 +를 누르면, 뒤의 곡들이 새 곡 쪽 수만큼 함께 밀려요. 곡을 뺄 때는 ×를 누르면 뒤의 곡들을 당길지 물어봐요. 곡 이름 옆 ⓘ 버튼으로 곡 정보(글과 사진)를 넣으면, 학생 교재 화면에 \'곡 정보\' 버튼이 생겨요.'),
-      warn, tocBox, dupNote,
-      h('div', { class: 'row end' }, h('button', { class: 'btn primary', onclick: (e) => saveToc(e.currentTarget) }, '목차 저장'))),
+      h('p', { class: 'muted small' }, '곡마다 시작 쪽을 적어 주세요. 이름이나 쪽 번호를 고치고 엔터를 치거나 다른 칸으로 옮겨 가면 바로 저장돼요. 학생이 마지막으로 본 곳과 좋아요는 이 곡 단위로 저장됩니다. 예를 들어 7쪽에서 시작해 10쪽까지 이어지는 곡의 9쪽을 보다가 닫으면 "곡 이름 · 3/4쪽"으로 기록돼요. 곡 사이에 새 곡을 넣을 때는 그 자리 바로 뒤 곡의 왼쪽 +를 누르면, 뒤의 곡들이 새 곡 쪽 수만큼 함께 밀려요. 곡을 뺄 때는 ×를 누르면 뒤의 곡들을 당길지 물어봐요. 곡 이름 옆 ⓘ 버튼으로 곡 정보(글과 사진)를 넣으면, 학생 교재 화면에 \'곡 정보\' 버튼이 생겨요.'),
+      warn, tocBox, dupNote, saveState),
     h('section', { class: 'card' }, h('h3', null, '파일 바꾸기 · 삭제'),
       h('p', { class: 'muted small' }, 'GoodNotes 자동 백업으로 같은 파일이 갱신되는 경우에는 바꿀 필요가 없습니다. 아예 다른 파일로 교체할 때만 쓰세요.'),
       h('div', { class: 'row' }, fileIn, h('button', { class: 'btn', onclick: async (e) => {

@@ -1,6 +1,6 @@
 // 교재 보기 화면: PDF 표시, 한 쪽/두 쪽 보기, 전체보기, 넘기기, 목차, 마지막으로 본 쪽 기억, 좋아요, 다운로드, 연습 시간 기록
 
-import { showSongInfo } from './songinfo.js';
+import { showSongInfo, editSongInfo } from './songinfo.js';
 import { h, toast, sheet, icon } from './ui.js';
 import { loadPdf } from './pdfsource.js';
 import { resolveBookmark, makeBookmark, sortToc, tocEntryFor, songAt, lastSpot } from './core.js';
@@ -828,11 +828,21 @@ export async function openReader(root, opts) {
   const songOf = (p) => songAt(book, p, n)?.title || book.title;
   // ---------- 곡 정보 ----------
   const hasInfo = (song) => (book.infoSongs || []).includes(song);
-  function paintInfo() { infoBtn.classList.toggle('hidden', !visible(page).some((p) => hasInfo(songOf(p)))); }
+  // 관리자는 곡 정보가 아직 없는 곡에서도 버튼이 보이고, 눌러서 바로 쓰거나 고칠 수 있다
+  const isAdmin = role === 'admin';
+  const infoTarget = (p) => (isAdmin ? !!songAt(book, p, n) : hasInfo(songOf(p)));
+  function paintInfo() { infoBtn.classList.toggle('hidden', !visible(page).some(infoTarget)); }
+  function editInfo(song) {
+    editSongInfo({ store, book, song, onSaved: (infoSongs) => { book = { ...book, infoSongs }; paintInfo(); buildToc(); } });
+  }
   function openInfo() {
-    const pages = visible(page).filter((p) => hasInfo(songOf(p)));
+    const pages = visible(page).filter(infoTarget);
     if (!pages.length) return;
-    pickSong('어느 곡의 정보를 볼까요?', pages, (p, song) => showSongInfo(song, store.getSongInfo(book.id, song)));
+    pickSong('어느 곡의 정보를 볼까요?', pages, (p, song) => {
+      if (!isAdmin) return showSongInfo(song, store.getSongInfo(book.id, song));
+      if (!hasInfo(song)) return editInfo(song);
+      showSongInfo(song, store.getSongInfo(book.id, song), { onEdit: () => editInfo(song) });
+    });
   }
 
   function pickSong(title, pages, then) {
@@ -888,7 +898,7 @@ export async function openReader(root, opts) {
           const toc = sortToc([...(book.toc || []).filter((e) => e.p !== p), { t, p }]);
           book = { ...book, toc, tocPages: n };
           await store.updateBook(book.id, { toc, tocPages: n });
-          buildToc(); close(); toast('목차에 추가했어요.', 'good');
+          buildToc(); paintInfo(); close(); toast('목차에 추가했어요.', 'good');
         } }, '추가')));
       setTimeout(() => input.focus(), 50);
     }, { title: '목차에 추가' });

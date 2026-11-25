@@ -70,11 +70,13 @@ function openImage(src) {
 }
 
 // 학생이 보는 곡 정보 창. info는 객체이거나 객체를 돌려줄 Promise
-export function showSongInfo(song, info) {
-  return sheet((body) => {
+// onEdit을 주면(관리자) 아래에 '편집' 버튼이 생긴다
+export function showSongInfo(song, info, { onEdit } = {}) {
+  return sheet((body, close) => {
     body.classList.add('song-info');
     const box = h('div', null, h('div', { class: 'loading' }, h('div', { class: 'spin' })));
     body.append(box);
+    if (onEdit) body.append(h('div', { class: 'row end' }, h('button', { class: 'btn primary', onclick: () => { close(); onEdit(); } }, '편집')));
     Promise.resolve(info).then((v) => {
       if (!v || (!v.text && !(v.images || []).length)) { box.replaceChildren(h('p', { class: 'muted' }, '아직 등록된 곡 정보가 없어요.')); return; }
       box.replaceChildren(...[
