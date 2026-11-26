@@ -271,10 +271,12 @@ async function viewStudentHome(sid, role) {
   const sections = columns.length ? [h('div', { class: 'shelf-cols' }, columns)] : [];
 
   shell(
-    topbar(brand(`${st.name}님`),
+    // 로그아웃 버튼은 왼쪽 위, 학원 로고는 오른쪽 위
+    topbar(
       role === 'kiosk'
-        ? h('button', { class: 'btn ghost small', onclick: () => nav('#/') }, '처음으로')
-        : h('button', { class: 'linkish quiet', onclick: async () => { if (await confirmBox('로그아웃할까요?', { ok: '로그아웃' })) { await store.logout(); nav('#/'); } } }, '로그아웃')),
+        ? h('button', { class: 'btn ghost small', onclick: () => nav('#/') }, '로그아웃')
+        : h('button', { class: 'linkish quiet', onclick: async () => { if (await confirmBox('로그아웃할까요?', { ok: '로그아웃' })) { await store.logout(); nav('#/'); } } }, '로그아웃'),
+      brand(`${st.name}님`)),
     h('main', { class: 'student-home' },
       h('div', { class: 'home-hello' }, h('h1', null, '오늘도 연습해 볼까요?')),
       sections.length ? sections : h('div', { class: 'empty' }, '아직 배정된 교재가 없어요. 선생님께 말씀해 주세요.')));
