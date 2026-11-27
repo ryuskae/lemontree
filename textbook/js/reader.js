@@ -897,17 +897,23 @@ export async function openReader(root, opts) {
 
   if (addTocBtn) {
     addTocBtn.onclick = () => sheet((body, close) => {
-      const input = h('input', { class: 'input', placeholder: '예: 할아버지의 낡은 시계' });
       const p = visible(page)[0];
+      let busy = false;
+      const add = async () => {
+        const t = input.value.trim(); if (!t || busy) return;
+        if ((book.toc || []).some((e) => e.t === t && e.p !== p)) return toast(`이미 목차에 있는 이름이에요 · ${t}`, 'bad');
+        busy = true;
+        const toc = sortToc([...(book.toc || []).filter((e) => e.p !== p), { t, p }]);
+        try { await store.updateBook(book.id, { toc, tocPages: n }); }
+        catch { busy = false; return toast('저장하지 못했어요. 인터넷 연결을 확인해 주세요.', 'bad'); }
+        book = { ...book, toc, tocPages: n };
+        buildToc(); paintInfo(); close(); toast('목차에 추가했어요.', 'good');
+      };
+      // 키보드의 엔터로도 추가 (한글 입력이 끝나지 않은 엔터는 무시)
+      const input = h('input', { class: 'input', placeholder: '예: 할아버지의 낡은 시계', enterkeyhint: 'done',
+        onkeydown: (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); add(); } } });
       body.append(h('p', { class: 'sheet-msg' }, `${p}쪽에서 시작하는 곡(목차 항목)을 추가합니다.`), input,
-        h('div', { class: 'row end' }, h('button', { class: 'btn primary', onclick: async () => {
-          const t = input.value.trim(); if (!t) return;
-          if ((book.toc || []).some((e) => e.t === t && e.p !== p)) return toast(`이미 목차에 있는 이름이에요 · ${t}`, 'bad');
-          const toc = sortToc([...(book.toc || []).filter((e) => e.p !== p), { t, p }]);
-          book = { ...book, toc, tocPages: n };
-          await store.updateBook(book.id, { toc, tocPages: n });
-          buildToc(); paintInfo(); close(); toast('목차에 추가했어요.', 'good');
-        } }, '추가')));
+        h('div', { class: 'row end' }, h('button', { class: 'btn primary', onclick: add }, '추가')));
       setTimeout(() => input.focus(), 50);
     }, { title: '목차에 추가' });
   }
