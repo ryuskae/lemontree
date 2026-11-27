@@ -661,10 +661,18 @@ export async function openReader(root, opts) {
   let down = null, exitTimer = null, lastScrollAt = 0;
   // 화면에 닿아 있는 손가락들: 두 손가락 이상이 닿은 동작은 누름으로 보지 않는다
   const pointers = new Set();
-  stage.addEventListener('pointerdown', (e) => { pointers.add(e.pointerId); if (pointers.size > 1 && down) down.multi = true; }, true);
+  // 첫 손가락(isPrimary)이 닿는 순간에는 다른 손가락이 없으므로 목록을 비운다.
+  // 쪽을 넘기면서 손가락 아래의 그림이 바뀌면 손을 뗀 신호가 이 화면에 오지 않을 때가 있는데,
+  // 그 손가락이 목록에 남아 있으면 그 뒤로 누르기·밀기가 모두 '두 손가락'으로 잘못 판정되었다.
+  stage.addEventListener('pointerdown', (e) => {
+    if (e.isPrimary) pointers.clear();
+    pointers.add(e.pointerId);
+    if (pointers.size > 1 && down) down.multi = true;
+  }, true);
   const dropPointer = (e) => pointers.delete(e.pointerId);
-  stage.addEventListener('pointerup', dropPointer, true);
-  stage.addEventListener('pointercancel', dropPointer, true);
+  window.addEventListener('pointerup', dropPointer, true);
+  window.addEventListener('pointercancel', dropPointer, true);
+  cleanups.push(() => { window.removeEventListener('pointerup', dropPointer, true); window.removeEventListener('pointercancel', dropPointer, true); });
   stage.addEventListener('scroll', () => { lastScrollAt = Date.now(); clearTimeout(exitTimer); }, { passive: true });
   stage.addEventListener('pointerdown', (e) => {
     if (!e.isPrimary || pinch) { down = null; return; }
